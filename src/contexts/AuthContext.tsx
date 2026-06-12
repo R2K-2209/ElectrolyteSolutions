@@ -1,0 +1,278 @@
+'use client';
+
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
+
+interface User {
+  id: string;
+  supabase_user_id: string;
+  email: string;
+  name?: string;
+  role: string;
+  created_at: string;
+  dcNumber?: string;
+  partCode?: string;
+}
+
+interface AuthContextType {
+  user: User | null;
+  loading: boolean;
+  signIn: (email: string, password: string) => Promise<any>;
+  signUp: (email: string, password: string, name: string) => Promise<any>;
+  signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
+  isAuthenticated: () => boolean;
+  getSelectedDcNumber: () => string | null;
+  getSelectedPartCode: () => string | null;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+
+  useEffect(() => {
+    // Check if user is already logged in when app loads
+    const checkSession = async () => {
+      // Add a small delay to avoid race conditions during initial page load
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Check for URL parameters (could be from email confirmation)
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const accessToken = urlParams.get('access_token');
+        const refreshToken = urlParams.get('refresh_token');
+        const expiresIn = urlParams.get('expires_in');
+        const tokenType = urlParams.get('token_type');
+        
+        // If we have tokens in the URL (e.g., from email confirmation), store them
+        if (accessToken && refreshToken) {
+          localStorage.setItem('supabase_access_token', accessToken);
+          localStorage.setItem('supabase_refresh_token', refreshToken);
+          
+          // Clear the URL parameters to avoid showing sensitive data
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }
+      
+      const token = localStorage.getItem('supabase_access_token');
+      
+      // Only make the request if a token exists
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+      
+      try {
+        const res = await fetch('/api/auth/me', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setUser(data.user);
+        } else {
+          // Token invalid or expired, clear it
+          localStorage.removeItem('supabase_access_token');
+          localStorage.removeItem('supabase_refresh_token');
+        }
+      } catch (err) {
+        console.error('Error checking session:', err);
+        // Clear any potentially invalid tokens
+        localStorage.removeItem('supabase_access_token');
+        localStorage.removeItem('supabase_refresh_token');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Only run the session check once on initial mount
+    if (loading) {
+      checkSession();
+    }
+  }, []); // Only run once on mount
+
+  const signIn = async (email: string, password: string) => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Login failed');
+      }
+
+      // Store tokens in localStorage
+      if (data.token) {
+        localStorage.setItem('supabase_access_token', data.token);
+      }
+      if (data.refreshToken) {
+        localStorage.setItem('supabase_refresh_token', data.refreshToken);
+      }
+      
+      // Update user state
+      setUser(data.user);
+      
+      return { success: true, user: data.user, token: data.token, refreshToken: data.refreshToken };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  };
+
+  const signUp = async (email: string, password: string, name: string) => {
+    try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Signup failed');
+      }
+
+      // Store tokens in localStorage
+      if (data.token) {
+        localStorage.setItem('supabase_access_token', data.token);
+      }
+      if (data.refreshToken) {
+        localStorage.setItem('supabase_refresh_token', data.refreshToken);
+      }
+      
+      // Update user state
+      setUser(data.user);
+      
+      return { success: true, user: data.user, token: data.token, refreshToken: data.refreshToken };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+      });
+
+      // Clear tokens and session data from localStorage
+      localStorage.removeItem('supabase_access_token');
+      localStorage.removeItem('supabase_refresh_token');
+      localStorage.removeItem('selectedDcNumber');
+      localStorage.removeItem('selectedPartCode');
+
+      // Update user state
+      setUser(null);
+      
+      // Redirect to login page
+      router.push('/login');
+    } catch (error) {
+      // Even if API call fails, still clear local tokens and state
+      localStorage.removeItem('supabase_access_token');
+      localStorage.removeItem('supabase_refresh_token');
+      localStorage.removeItem('selectedDcNumber');
+      localStorage.removeItem('selectedPartCode');
+      setUser(null);
+      
+      console.error('Signout error:', error);
+      
+      // Redirect to login page
+      router.push('/login');
+    }
+  };
+
+  const resetPassword = async (email: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        return { success: false, error: data.error || 'Failed to send reset email' };
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Network error' };
+    }
+  };
+
+  const getSelectedDcNumber = (): string | null => {
+    if (typeof window !== 'undefined') {
+      const dcNumber = localStorage.getItem('selectedDcNumber');
+      console.log('getSelectedDcNumber returning:', dcNumber);
+      return dcNumber;
+    }
+    return null;
+  };
+
+  const getSelectedPartCode = (): string | null => {
+    if (typeof window !== 'undefined') {
+      const partCode = localStorage.getItem('selectedPartCode');
+      console.log('getSelectedPartCode returning:', partCode);
+      return partCode;
+    }
+    return null;
+  };
+
+  const isAuthenticated = () => {
+    return !!user;
+  };
+
+  const value = {
+    user,
+    loading,
+    signIn,
+    signUp,
+    signOut,
+    resetPassword,
+    isAuthenticated,
+    getSelectedDcNumber,
+    getSelectedPartCode,
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
+
+// Helper hook to get session-scoped DC Number and Partcode
+export function useSessionData() {
+  const { getSelectedDcNumber, getSelectedPartCode } = useAuth();
+  
+  const dcNumber = getSelectedDcNumber();
+  const partCode = getSelectedPartCode();
+  
+  console.log('=== useSessionData Hook ===');
+  console.log('getSelectedDcNumber() returned:', dcNumber);
+  console.log('getSelectedPartCode() returned:', partCode);
+  console.log('Direct localStorage check:', localStorage.getItem('selectedDcNumber'), localStorage.getItem('selectedPartCode'));
+  
+  return {
+    dcNumber,
+    partCode,
+  };
+}
