@@ -1,0 +1,446 @@
+                               branch                               | cnt  
+--------------------------------------------------------------------+------
+ NA                                                                 | 4619
+ PATNA                                                              |  859
+ LUCKNOW                                                            |  466
+ Patna                                                              |  452
+ Indore                                                             |  402
+ AGRA                                                               |  394
+ Raipur                                                             |  384
+ CHD                                                                |  375
+ Lucknow                                                            |  352
+ Chandigarh                                                         |  297
+ KOLKATA                                                            |  281
+ Varanasi                                                           |  273
+ BBSR                                                               |  222
+ LKO                                                                |  209
+ NAGPUR                                                             |  206
+ Agra                                                               |  191
+ RAIPUR                                                             |  182
+ INDORE                                                             |  167
+ Nagpur                                                             |  163
+ Pratapgarh                                                         |  154
+ Delhi                                                              |  150
+ Kolkata                                                            |  134
+ RANCHI                                                             |  134
+ Kanpur                                                             |  130
+ Bareilly                                                           |  122
+ GORAKHPUR                                                          |  122
+ Jabalpur                                                           |  120
+ Noida                                                              |  115
+ LATEHAR                                                            |  106
+ Kundli                                                             |  105
+ Mumbai                                                             |   60
+ Ranchi                                                             |   55
+ JAMSHEDPUR                                                         |   53
+ Dehradun                                                           |   52
+ Delhi                                                              |   52
+ Gorakhpur                                                          |   48
+ KANPUR                                                             |   47
+ Bhagalpur                                                          |   43
+ Indor                                                              |   39
+ KOLKATA 2                                                          |   39
+ BAREILLY                                                           |   38
+ Nashik                                                             |   30
+ Sherghati                                                          |   30
+ RAJPUT                                                             |   28
+ Thane                                                              |   26
+ Nagapur                                                            |   25
+ INDOR                                                              |   25
+ DELHI                                                              |   24
+ Kushinagar                                                         |   20
+ JABALPUR                                                           |   20
+ Patan                                                              |   17
+ KUNDLI                                                             |   16
+ ASHTA                                                              |   15
+ Dhule                                                              |   15
+ BHUBANESWAR                                                        |   13
+ patna                                                              |   13
+ THANE                                                              |   13
+ DHANBAD                                                            |   13
+ Guwahati                                                           |   12
+ Siliguri                                                           |   12
+ RAJKOT                                                             |   11
+ KOLKATA                                                            |   11
+ Sherghati, Gaya                                                    |   11
+ chandigarh                                                         |   11
+ nagpur                                                             |    9
+ Bhopal                                                             |    9
+ CHD-2                                                              |    9
+ L.K.O                                                              |    8
+ Pune                                                               |    8
+ GUJRAT                                                             |    8
+ Hapur                                                              |    7
+ ASHITA                                                             |    7
+ LUCKNow                                                            |    7
+ GUJARAT                                                            |    7
+ PATAN                                                              |    7
+ LUCKnow                                                            |    6
+ Rajpur                                                             |    6
+ CHD.                                                               |    6
+ Barcilly                                                           |    6
+ Delhi-2                                                            |    6
+ Kalkata                                                            |    6
+ BHAGALPUR                                                          |    6
+ B.B.S.R                                                            |    6
+ Gorkhpur                                                           |    6
+ Lko                                                                |    6
+ Kundali                                                            |    6
+ DURGAPUR                                                           |    6
+ Ranchi-1                                                           |    6
+ KOL-2                                                              |    6
+ YAVATMAL                                                           |    5
+ NOIDA                                                              |    5
+ Cuttack                                                            |    5
+ lucknow                                                            |    5
+ CHANDIGARH                                                         |    5
+ BARUIPUR                                                           |    5
+ DEHRADUN                                                           |    4
+ N                                                                  |    4
+ na                                                                 |    4
+ LuckNow                                                            |    4
+ Kolhapur                                                           |    4
+ MUMBAI                                                             |    4
+ PATNA                                                              |    4
+ Durgapur                                                           |    4
+ Ranchi                                                             |    4
+ VARANASI                                                           |    3
+ SHERGHATI                                                          |    3
+ Agra                                                               |    3
+ Deharadun                                                          |    3
+  Ranchi                                                            |    3
+ SHEIKHPURA                                                         |    3
+ KUSHINAGR                                                          |    3
+ GUMLA                                                              |    3
+ BIHAR                                                              |    3
+ NASHK                                                              |    3
+ Bhubaneswar                                                        |    3
+ GZB                                                                |    3
+ MOTIHARI                                                           |    3
+ NA`                                                                |    3
+ LUCKNOW                                                            |    3
+ Jaipur                                                             |    3
+ Jabalpur                                                           |    3
+ Ranchi - 1                                                         |    3
+ KONNAGAR                                                           |    3
+ kundli                                                             |    3
+ JAMSHEDPUR-1                                                       |    3
+ RAJPUT                                                             |    3
+ PRATAPGARH                                                         |    3
+ AMD                                                                |    3
+ Chandigarh.                                                        |    2
+ CHD.2                                                              |    2
+ CHD. 2                                                             |    2
+ LATEHAR                                                            |    2
+ JABALPUR.                                                          |    2
+ CHD                                                                |    2
+ Jaanvi Enterprise                                                  |    2
+ Barilly                                                            |    2
+ KOL - 2                                                            |    2
+ RAIPOR                                                             |    2
+ Delhi - 2                                                          |    2
+ BHOPAL                                                             |    2
+ KHARDAH                                                            |    2
+ Kolkat                                                             |    2
+ NCR                                                                |    2
+ thane                                                              |    2
+ SURAT                                                              |    2
+ BAHRAICH                                                           |    2
+ LUCknow                                                            |    2
+ PTNA                                                               |    2
+ BRSR                                                               |    2
+ Patan                                                              |    2
+  Patna                                                             |    2
+ Patra                                                              |    2
+ RaiPur                                                             |    2
+ Sherghati,                                                         |    2
+ Surat                                                              |    2
+ Chandigarh-2                                                       |    2
+  Varanasi                                                          |    2
+ Ranchi 1                                                           |    2
+ NA                                                                 |    2
+ mumbai                                                             |    2
+  NA                                                                |    2
+ Patna                                                              |    2
+ D. Dun                                                             |    2
+ Raj Electrical Works                                               |    2
+ NASHIK                                                             |    2
+ MumbaNA                                                            |    2
+ Naypur                                                             |    2
+ KUNDI                                                              |    2
+ Barailly                                                           |    2
+ Indore.                                                            |    2
+ BHUBANESWAR                                                        |    2
+ Indas                                                              |    2
+ Siliguri.                                                          |    1
+ kundali                                                            |    1
+ LKB                                                                |    1
+ Imdare                                                             |    1
+ K.L                                                                |    1
+ PAtna                                                              |    1
+ Kundly                                                             |    1
+ BAHRAICAH                                                          |    1
+  Siligur.                                                          |    1
+ Konka Road, Ranchi - 1                                             |    1
+ JYNAGARH                                                           |    1
+ DURGAPUR                                                           |    1
+ LKD                                                                |    1
+ Ranjpur                                                            |    1
+ GORAKH PUR                                                         |    1
+ hosur                                                              |    1
+ Jehanabad                                                          |    1
+ BBS R                                                              |    1
+ Jabajpur                                                           |    1
+ Gawahanti                                                          |    1
+ RAZPUR                                                             |    1
+ Kundi                                                              |    1
+ RANPUR                                                             |    1
+ Ranapur                                                            |    1
+ KOL2                                                               |    1
+ SILIGURI                                                           |    1
+ PATANA                                                             |    1
+ Hreel Krane                                                        |    1
+ Agera                                                              |    1
+ G.W Mo Prades                                                      |    1
+ Koprakhpur                                                         |    1
+ MumNA                                                              |    1
+ Dehredhun                                                          |    1
+ NAGPUR                                                             |    1
+ SHERHHATI                                                          |    1
+ Chandighar                                                         |    1
+ KanPur                                                             |    1
+ Bhandan                                                            |    1
+ Electro Supreme Services                                           |    1
+ NOIDE                                                              |    1
+ Kumali                                                             |    1
+ CHD-II                                                             |    1
+ Rai Pur                                                            |    1
+  Thane                                                             |    1
+ Kundl                                                              |    1
+ chai                                                               |    1
+ JAMSHEDPUB-1                                                       |    1
+ KOLK                                                               |    1
+ B.B.B.R                                                            |    1
+ Charanjouh                                                         |    1
+ NNNA                                                               |    1
+ siliguri                                                           |    1
+ kolhapur                                                           |    1
+ KONDLI                                                             |    1
+ Latemar                                                            |    1
+ PATNAbai                                                           |    1
+ NAGPURQ                                                            |    1
+ B.B.S R                                                            |    1
+ Khardan                                                            |    1
+ KOLKATAA                                                           |    1
+ NNA                                                                |    1
+ Bareilly.                                                          |    1
+ silliguri                                                          |    1
+ KOUKATA                                                            |    1
+  Ranchi- 1                                                         |    1
+ L.K.O.                                                             |    1
+ Varansi                                                            |    1
+ NA14                                                               |    1
+ BAREILY                                                            |    1
+ New Delhi                                                          |    1
+ Dahanadun                                                          |    1
+ Jhanbad                                                            |    1
+ Delhi 2                                                            |    1
+ KUNDUT                                                             |    1
+ Chennai                                                            |    1
+ Chandigarh                                                         |    1
+ N A                                                                |    1
+ Indore                                                             |    1
+ JAMNAGAR                                                           |    1
+ JabalPur                                                           |    1
+ Chandgarh                                                          |    1
+ AQRA                                                               |    1
+ KENDU ENTERPRISE BAJAJ ELECTRICAL SERVICE                          |    1
+ Verida                                                             |    1
+ AARUNA SERVICE CENTRENA                                            |    1
+ Doreilly                                                           |    1
+ NC                                                                 |    1
+ Baunilly                                                           |    1
+ Delh                                                               |    1
+  Indore                                                            |    1
+  Shorghati, Gaya                                                   |    1
+ patra                                                              |    1
+ AGRA.                                                              |    1
+ B. B. S.R                                                          |    1
+ Birganj                                                            |    1
+ G.KP                                                               |    1
+ kanpur                                                             |    1
+ A                                                                  |    1
+ Tushar Technical Services                                          |    1
+ RALPUR                                                             |    1
+ Agaa                                                               |    1
+ Aggra                                                              |    1
+ B B S R                                                            |    1
+ AGRD                                                               |    1
+ PATIA                                                              |    1
+ Singapur                                                           |    1
+ Rampur                                                             |    1
+ Deharadub                                                          |    1
+ BBSR                                                               |    1
+ GORARAPUR                                                          |    1
+ NAA                                                                |    1
+ Polda                                                              |    1
+ Bilaspur                                                           |    1
+ RA                                                                 |    1
+ LKG                                                                |    1
+ SHEIKHOURA                                                         |    1
+ ASHTA                                                              |    1
+ DelhI                                                              |    1
+ RAINA                                                              |    1
+ Ruri Ent                                                           |    1
+ NAIDA                                                              |    1
+ RAJEEV NAGAR                                                       |    1
+ DARA                                                               |    1
+ KUNDEL                                                             |    1
+ CHO                                                                |    1
+ KQL-2                                                              |    1
+ D.DUN                                                              |    1
+ MALDA                                                              |    1
+ Kundle                                                             |    1
+ gorakhpur                                                          |    1
+ CMD.2                                                              |    1
+ 1802-2                                                             |    1
+ A1 Electronic                                                      |    1
+ KHAMGAON                                                           |    1
+ raipur                                                             |    1
+ JAMSHDPUR                                                          |    1
+ KUNDLIT                                                            |    1
+ Calicut                                                            |    1
+ Dhali                                                              |    1
+ KANAIR                                                             |    1
+ KANDLI                                                             |    1
+ CHAMPARAN                                                          |    1
+ KIRRTY                                                             |    1
+ DEHRADON                                                           |    1
+ DIAGONAL ROAD,                                                     |    1
+ MAHADEVI ENTERPRISES B-38, HOUSING COLONY KANKARBAGH PATNA-800 020 |    1
+  Durgapur                                                          |    1
+ ASHWA ELEOTRONICS                                                  |    1
+ Chardigarh                                                         |    1
+ GHD                                                                |    1
+ Raj Electrical WorkNA                                              |    1
+ Latehar                                                            |    1
+ Kundal                                                             |    1
+ New deer                                                           |    1
+ Chanchbash                                                         |    1
+ Chandi garh                                                        |    1
+ Barelly                                                            |    1
+ Barwilly                                                           |    1
+ SBM                                                                |    1
+ Bhagine                                                            |    1
+ GORAKPUZ                                                           |    1
+ Patna                                                              |    1
+ Bhagappur                                                          |    1
+ Prelove                                                            |    1
+ Nomur                                                              |    1
+ Patne                                                              |    1
+ KALYAN                                                             |    1
+ Bamily                                                             |    1
+ JAIPUR                                                             |    1
+ Patna                                                              |    1
+ BBER                                                               |    1
+ DELHI                                                              |    1
+ Kundlli                                                            |    1
+ RAJPUR                                                             |    1
+ Sherghat                                                           |    1
+ Kalkala                                                            |    1
+ PRATAPGAH                                                          |    1
+ GORAKPUR                                                           |    1
+ NAQ                                                                |    1
+ Anandi Bazar Chowk                                                 |    1
+ Shergnati. Gaya                                                    |    1
+ Delhi.                                                             |    1
+ KACHCHH                                                            |    1
+ Shergnat                                                           |    1
+ RAiPur                                                             |    1
+ Koundla                                                            |    1
+  Ranchi                                                            |    1
+ Surgat                                                             |    1
+ CAD                                                                |    1
+ Faipur                                                             |    1
+ Kolkata                                                            |    1
+ NAM                                                                |    1
+ DIDUN                                                              |    1
+ इन्दौर                                                              |    1
+ For A. S. Enterprises                                              |    1
+ Demaadhur                                                          |    1
+ Khardah                                                            |    1
+ CUTTACK                                                            |    1
+ Chandwall                                                          |    1
+ Shekhpura                                                          |    1
+ kolkata                                                            |    1
+ PATNA`                                                             |    1
+ Prabhat Raipur                                                     |    1
+ CHD - II                                                           |    1
+ varanasi                                                           |    1
+ TrichyNA                                                           |    1
+ LATERAMA                                                           |    1
+ RUNDLT                                                             |    1
+ Chadigail                                                          |    1
+                CHD                                                 |    1
+ Berilly                                                            |    1
+ RAJKOT                                                             |    1
+ AMD                                                                |    1
+ Shergnati, Gaya                                                    |    1
+  Sherghati                                                         |    1
+ A1 Electronics                                                     |    1
+ Kandly                                                             |    1
+ KUNDALI                                                            |    1
+ Kushi nagar                                                        |    1
+ Kundla                                                             |    1
+ KOLKATA,                                                           |    1
+ INDURE                                                             |    1
+ Barei lly                                                          |    1
+ GIORAIPUR                                                          |    1
+ GUJKAT                                                             |    1
+ Lucknow                                                            |    1
+ JABAI PUR                                                          |    1
+ ACRA                                                               |    1
+ Rajeev Nagar                                                       |    1
+ DOINANDIN                                                          |    1
+  Sherghati, Gaya                                                   |    1
+ Borkata                                                            |    1
+ RANCHIT                                                            |    1
+ RANCHA                                                             |    1
+ JABAIPUR                                                           |    1
+ C.H.D                                                              |    1
+ CHDS                                                               |    1
+ Darcilly                                                           |    1
+ CH. SAMBHAJI NAGA                                                  |    1
+ LUCKhow                                                            |    1
+  Ranchi-1                                                          |    1
+ KUSHINAGAR                                                         |    1
+ Gumla                                                              |    1
+ BSSR                                                               |    1
+ BHOPALPUR                                                          |    1
+ KODARMA                                                            |    1
+ Rundhi                                                             |    1
+ DEHLI                                                              |    1
+ Dohraduh                                                           |    1
+ Bhoyapur                                                           |    1
+ CH.SAMBHAJINAGAR                                                   |    1
+ BBSR-KOLKATA                                                       |    1
+ bhagalpur                                                          |    1
+ BANIUR                                                             |    1
+ A. ElectronicaNA                                                   |    1
+ KOLKATA-150                                                        |    1
+ Chandigarh 2                                                       |    1
+ CHC                                                                |    1
+ Guwahali                                                           |    1
+ chandigarh - 2                                                     |    1
+ HATEHAR                                                            |    1
+ Inder                                                              |    1
+ cuttack                                                            |    1
+ KUNDLT                                                             |    1
+  Ranchi - 1                                                        |    1
+ Rai Baliwal                                                        |    1
+ KUNDU EN                                                           |    1
+ ALIGARH                                                            |    1
+ dhanbad                                                            |    1
+ Kondli                                                             |    1
+(442 rows)
+
