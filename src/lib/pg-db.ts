@@ -460,7 +460,7 @@ export async function updateConsolidatedDataEntryByProductSrNo(productSrNo: stri
     return true;
   } catch (error) {
     console.error('Error updating consolidated data entry by product_sr_no:', error);
-    return false;
+    throw error;
   }
 }
 
@@ -1285,7 +1285,7 @@ export async function searchConsolidatedDataEntriesByPcb(dcNo?: string, partCode
     
     if (srNo && srNo.trim() !== '') {
       const paddedSrNo = srNo.trim().padStart(4, '0');
-      query += ` AND sr_no = ${paramCount}`;
+      query += ` AND sr_no = $${paramCount}`;
       params.push(paddedSrNo);
       paramCount++;
     } else if (pcbSrNo && pcbSrNo.trim() !== '') {
@@ -1658,5 +1658,372 @@ export async function getEntryCountsByDcNumber(date?: string): Promise<{
   } catch (error) {
     console.error('Error fetching entry counts by DC number:', error);
     return { rows: [], totalTag: 0, totalConsumption: 0 };
+  }
+}
+
+// ============================================================================
+// INVENTORY MANAGEMENT FUNCTIONS
+// ============================================================================
+
+// Type definitions for inventory operations
+export interface ProductWithBomCount {
+  id: number;
+  part_code: string;
+  description: string;
+  component_count: number;
+}
+
+export interface BomComponent {
+  id: number;
+  product_id: number;
+  location: string;
+  spare_part_id: number | null;
+  description: string;
+  quantity: number;
+  product_part_code: string;
+  product_description: string;
+  // Joined from spare_parts if linked
+  current_stock: number | null;
+  reorder_threshold: number | null;
+}
+
+export interface SparePart {
+  id: number;
+  part_name: string;
+  description: string | null;
+  stock_quantity: number;
+  initial_quantity: number;
+  reorder_threshold: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventoryTransaction {
+  id: number;
+  spare_part_id: number;
+  txn_type: string;
+  quantity: number;
+  job_id: number | null;
+  notes: string | null;
+  created_at: string;
+  part_name?: string;
+}
+
+export interface StockItem {
+  bomId: number;
+  partName: string;
+  description: string;
+  quantity: number;
+  reorderThreshold: number;
+}
+
+export interface InventorySummary {
+  totalUniqueComponents: number;
+  totalInStock: number;
+  totalLowStock: number;
+  totalOutOfStock: number;
+  totalStockValue: number;
+  todayTransactions: number;
+}
+
+/**
+ * Get all PCB products with the count of BOM components each has.
+ * Used to populate the PCB selector dropdown in the Inventory UI.
+ */
+export async function getProductsWithBomCount(): Promise<ProductWithBomCount[]> {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        p.id,
+        p.part_code,
+        p.description,
+        COUNT(b.id)::int AS component_count
+      FROM products p
+      LEFT JOIN bom_new b ON b.product_id = p.id
+      GROUP BY p.id, p.part_code, p.description
+      ORDER BY p.part_code
+    `);
+    return result.rows;
+  } catch (error) {
+    console.error('Error fetching products with BOM count:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all BOM components for a specific product (PCB), enriched with
+ * spare_parts stock data if a link exists.
+ */
+export async function getBomComponentsByProductId(productId: number): Promise<BomComponent[]> {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        b.id,
+        b.product_id,
+        b.location,
+        b.spare_part_id,
+        b.description,
+        b.quantity,
+        p.part_code AS product_part_code,
+        p.description AS product_description,
+        sp.stock_quantity AS current_stock,
+        sp.reorder_threshold
+      FROM bom_new b
+      JOIN products p ON b.product_id = p.id
+      LEFT JOIN spare_parts sp ON b.spare_part_id = sp.id
+      WHERE b.product_id = $1
+      ORDER BY b.location
+    `, [productId]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error fetching BOM components by product ID:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all spare parts with current stock information.
+ * Optionally filter by low-stock or search term.
+ */
+export async function getAllSpareParts(options?: {
+  lowStockOnly?: boolean;
+  search?: string;
+}): Promise<SparePart[]> {
+  try {
+    let query = 'SELECT * FROM spare_parts WHERE TRUE';
+    const params: any[] = [];
+    let paramIdx = 1;
+
+    if (options?.lowStockOnly) {
+      query += ` AND stock_quantity <= reorder_threshold`;
+    }
+
+    if (options?.search && options.search.trim() !== '') {
+      query += ` AND (part_name ILIKE $${paramIdx} OR description ILIKE $${paramIdx})`;
+      params.push(`%${options.search.trim()}%`);
+      paramIdx++;
+    }
+
+    query += ' ORDER BY part_name ASC';
+
+    const result = await pool.query(query, params);
+    return result.rows;
+  } catch (error) {
+    console.error('Error fetching all spare parts:', error);
+    return [];
+  }
+}
+
+/**
+ * Upsert a single spare part. If part_name already exists, ADD the quantity
+ * to existing stock. Returns the spare_part id.
+ * 
+ * This is the core function — it guarantees idempotent part creation and
+ * additive stock updates in a single atomic operation.
+ */
+export async function upsertSparePart(
+  partName: string,
+  description: string,
+  quantity: number,
+  reorderThreshold: number = 5
+): Promise<number | null> {
+  try {
+    const result = await pool.query(`
+      INSERT INTO spare_parts (part_name, description, stock_quantity, initial_quantity, reorder_threshold, updated_at)
+      VALUES ($1, $2, $3, $3, $4, CURRENT_TIMESTAMP)
+      ON CONFLICT (part_name) DO UPDATE SET
+        stock_quantity = spare_parts.stock_quantity + $3,
+        initial_quantity = spare_parts.initial_quantity + $3,
+        description = COALESCE(NULLIF(EXCLUDED.description, ''), spare_parts.description),
+        reorder_threshold = GREATEST(spare_parts.reorder_threshold, EXCLUDED.reorder_threshold),
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING id
+    `, [partName.trim(), description.trim(), quantity, reorderThreshold]);
+
+    return result.rows[0]?.id ?? null;
+  } catch (error) {
+    console.error('Error upserting spare part:', error);
+    return null;
+  }
+}
+
+/**
+ * Log an inventory transaction. This is the audit trail for all stock
+ * movements (STOCK_IN, STOCK_OUT, CONSUMPTION, ADJUSTMENT).
+ */
+export async function addInventoryTransaction(
+  sparePartId: number,
+  txnType: 'STOCK_IN' | 'STOCK_OUT' | 'CONSUMPTION' | 'ADJUSTMENT',
+  quantity: number,
+  notes?: string,
+  jobId?: number
+): Promise<boolean> {
+  try {
+    await pool.query(`
+      INSERT INTO inventory_transactions (spare_part_id, txn_type, quantity, job_id, notes, created_at)
+      VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+    `, [sparePartId, txnType, quantity, jobId || null, notes || null]);
+    return true;
+  } catch (error) {
+    console.error('Error adding inventory transaction:', error);
+    return false;
+  }
+}
+
+/**
+ * Link a BOM entry to a spare part by setting bom_new.spare_part_id.
+ * This connects the BOM reference to the inventory tracking system.
+ */
+export async function linkBomToSparePart(bomId: number, sparePartId: number): Promise<boolean> {
+  try {
+    await pool.query(
+      'UPDATE bom_new SET spare_part_id = $1 WHERE id = $2',
+      [sparePartId, bomId]
+    );
+    return true;
+  } catch (error) {
+    console.error('Error linking BOM to spare part:', error);
+    return false;
+  }
+}
+
+/**
+ * BATCH add stock for multiple components in a single database transaction.
+ * 
+ * For each item:
+ *  1. Upsert into spare_parts (create or add quantity)
+ *  2. Link bom_new.spare_part_id to the spare part
+ *  3. Log a STOCK_IN transaction
+ * 
+ * If ANY step fails, the entire batch is rolled back.
+ */
+export async function addStockForComponents(
+  items: StockItem[],
+  addedBy?: string
+): Promise<{ success: boolean; count: number; error?: string }> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    let processedCount = 0;
+
+    for (const item of items) {
+      if (item.quantity <= 0) continue;
+
+      // 1. Upsert spare part and get its ID
+      const upsertResult = await client.query(`
+        INSERT INTO spare_parts (part_name, description, stock_quantity, initial_quantity, reorder_threshold, updated_at)
+        VALUES ($1, $2, $3, $3, $4, CURRENT_TIMESTAMP)
+        ON CONFLICT (part_name) DO UPDATE SET
+          stock_quantity = spare_parts.stock_quantity + $3,
+          initial_quantity = spare_parts.initial_quantity + $3,
+          description = COALESCE(NULLIF(EXCLUDED.description, ''), spare_parts.description),
+          reorder_threshold = GREATEST(spare_parts.reorder_threshold, EXCLUDED.reorder_threshold),
+          updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+      `, [item.partName.trim(), item.description.trim(), item.quantity, item.reorderThreshold]);
+
+      const sparePartId = upsertResult.rows[0].id;
+
+      // 2. Link BOM entry to spare part (if bomId provided and valid)
+      if (item.bomId > 0) {
+        await client.query(
+          'UPDATE bom_new SET spare_part_id = $1 WHERE id = $2',
+          [sparePartId, item.bomId]
+        );
+      }
+
+      // 3. Log the STOCK_IN transaction
+      const notes = addedBy ? `Stock added by ${addedBy}` : 'Stock added';
+      await client.query(`
+        INSERT INTO inventory_transactions (spare_part_id, txn_type, quantity, notes, created_at)
+        VALUES ($1, 'STOCK_IN', $2, $3, CURRENT_TIMESTAMP)
+      `, [sparePartId, item.quantity, notes]);
+
+      processedCount++;
+    }
+
+    await client.query('COMMIT');
+    return { success: true, count: processedCount };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error in batch addStockForComponents:', error);
+    return {
+      success: false,
+      count: 0,
+      error: error instanceof Error ? error.message : 'Unknown error during batch stock operation'
+    };
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Get aggregated inventory summary statistics.
+ */
+export async function getInventorySummary(): Promise<InventorySummary> {
+  try {
+    const [totalRes, lowRes, outRes, stockRes, txnRes] = await Promise.all([
+      pool.query('SELECT COUNT(*)::int AS count FROM spare_parts'),
+      pool.query('SELECT COUNT(*)::int AS count FROM spare_parts WHERE stock_quantity > 0 AND stock_quantity <= reorder_threshold'),
+      pool.query('SELECT COUNT(*)::int AS count FROM spare_parts WHERE stock_quantity = 0'),
+      pool.query('SELECT COALESCE(SUM(stock_quantity), 0)::int AS total FROM spare_parts'),
+      pool.query(`SELECT COUNT(*)::int AS count FROM inventory_transactions WHERE created_at::date = CURRENT_DATE`),
+    ]);
+
+    const totalUnique = totalRes.rows[0].count;
+    const lowStock = lowRes.rows[0].count;
+    const outOfStock = outRes.rows[0].count;
+    const inStock = totalUnique - outOfStock;
+
+    return {
+      totalUniqueComponents: totalUnique,
+      totalInStock: inStock,
+      totalLowStock: lowStock,
+      totalOutOfStock: outOfStock,
+      totalStockValue: stockRes.rows[0].total,
+      todayTransactions: txnRes.rows[0].count,
+    };
+  } catch (error) {
+    console.error('Error fetching inventory summary:', error);
+    return {
+      totalUniqueComponents: 0,
+      totalInStock: 0,
+      totalLowStock: 0,
+      totalOutOfStock: 0,
+      totalStockValue: 0,
+      todayTransactions: 0,
+    };
+  }
+}
+
+/**
+ * Get recent inventory transactions, optionally filtered by spare part.
+ */
+export async function getInventoryTransactions(
+  sparePartId?: number,
+  limit: number = 50
+): Promise<InventoryTransaction[]> {
+  try {
+    let query = `
+      SELECT it.*, sp.part_name
+      FROM inventory_transactions it
+      JOIN spare_parts sp ON it.spare_part_id = sp.id
+    `;
+    const params: any[] = [];
+
+    if (sparePartId) {
+      query += ' WHERE it.spare_part_id = $1';
+      params.push(sparePartId);
+    }
+
+    query += ' ORDER BY it.created_at DESC';
+    query += ` LIMIT $${params.length + 1}`;
+    params.push(limit);
+
+    const result = await pool.query(query, params);
+    return result.rows;
+  } catch (error) {
+    console.error('Error fetching inventory transactions:', error);
+    return [];
   }
 }
