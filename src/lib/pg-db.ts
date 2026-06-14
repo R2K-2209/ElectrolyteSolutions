@@ -1790,7 +1790,27 @@ export async function getAllSpareParts(options?: {
   search?: string;
 }): Promise<SparePart[]> {
   try {
-    let query = 'SELECT * FROM spare_parts WHERE TRUE';
+    let baseQuery = `
+      SELECT id, part_name, description, stock_quantity, initial_quantity, reorder_threshold, updated_at 
+      FROM spare_parts
+      UNION ALL
+      SELECT 
+        -(row_number() over ()) as id,
+        description as part_name,
+        description as description,
+        0 as stock_quantity,
+        0 as initial_quantity,
+        0 as reorder_threshold,
+        CURRENT_TIMESTAMP as updated_at
+      FROM (
+        SELECT DISTINCT description 
+        FROM bom_new 
+        WHERE description IS NOT NULL AND description != '' 
+        AND description NOT IN (SELECT part_name FROM spare_parts)
+      ) as unmatched_bom
+    `;
+
+    let query = `SELECT * FROM (${baseQuery}) as combined WHERE TRUE`;
     const params: any[] = [];
     let paramIdx = 1;
 
@@ -2024,6 +2044,129 @@ export async function getInventoryTransactions(
     return result.rows;
   } catch (error) {
     console.error('Error fetching inventory transactions:', error);
+    return [];
+  }
+}
+
+// ============================================================================
+// PURCHASE ORDER / STOCK RECEIPT LOGIC
+// ============================================================================
+
+export interface ReceiptItem {
+  sparePartId?: number; // If existing component
+  partName: string;
+  description: string;
+  quantity: number;
+  unitCost: number;
+  reorderThreshold: number;
+}
+
+export interface StockReceiptInput {
+  vendorName: string;
+  invoiceNo: string;
+  receivedDate: string; // YYYY-MM-DD
+  invoiceFilePath?: string;
+  totalAmount: number;
+  items: ReceiptItem[];
+}
+
+export async function addStockReceipt(
+  receipt: StockReceiptInput,
+  addedBy?: string
+): Promise<{ success: boolean; count: number; error?: string }> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    // 1. Insert the Stock Receipt
+    const receiptResult = await client.query(`
+      INSERT INTO stock_receipts (vendor_name, invoice_no, received_date, invoice_file_path, total_amount, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id
+    `, [
+      receipt.vendorName.trim(), 
+      receipt.invoiceNo.trim(), 
+      receipt.receivedDate, 
+      receipt.invoiceFilePath || null, 
+      receipt.totalAmount,
+      addedBy || 'Unknown'
+    ]);
+    
+    const receiptId = receiptResult.rows[0].id;
+    let processedCount = 0;
+
+    // 2. Process all items
+    for (const item of receipt.items) {
+      if (item.quantity <= 0) continue;
+
+      // Upsert spare part
+      const upsertResult = await client.query(`
+        INSERT INTO spare_parts (part_name, description, stock_quantity, initial_quantity, reorder_threshold, updated_at)
+        VALUES ($1, $2, $3, $3, $4, CURRENT_TIMESTAMP)
+        ON CONFLICT (part_name) DO UPDATE SET
+          stock_quantity = spare_parts.stock_quantity + $3,
+          initial_quantity = spare_parts.initial_quantity + $3,
+          description = COALESCE(NULLIF(EXCLUDED.description, ''), spare_parts.description),
+          reorder_threshold = GREATEST(spare_parts.reorder_threshold, EXCLUDED.reorder_threshold),
+          updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+      `, [item.partName.trim(), item.description.trim(), item.quantity, item.reorderThreshold]);
+
+      const sparePartId = upsertResult.rows[0].id;
+
+      // Log transaction with receipt_id and unit_cost
+      const notes = `PO Intake via Invoice ${receipt.invoiceNo}`;
+      await client.query(`
+        INSERT INTO inventory_transactions (spare_part_id, txn_type, quantity, unit_cost, receipt_id, notes, created_at)
+        VALUES ($1, 'STOCK_IN', $2, $3, $4, $5, CURRENT_TIMESTAMP)
+      `, [sparePartId, item.quantity, item.unitCost, receiptId, notes]);
+
+      processedCount++;
+    }
+
+    await client.query('COMMIT');
+    return { success: true, count: processedCount };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error adding stock receipt:', error);
+    return { success: false, count: 0, error: error instanceof Error ? error.message : 'Unknown error' };
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Get all stock receipts (PO history)
+ */
+export async function getStockReceipts() {
+  try {
+    const result = await pool.query(`
+      SELECT sr.*, 
+             (SELECT COUNT(*) FROM inventory_transactions it WHERE it.receipt_id = sr.id) as items_count
+      FROM stock_receipts sr
+      ORDER BY sr.received_date DESC, sr.created_at DESC
+    `);
+    return result.rows;
+  } catch (error) {
+    console.error('Error fetching stock receipts:', error);
+    return [];
+  }
+}
+
+/**
+ * Get details of a specific stock receipt (including items)
+ */
+export async function getStockReceiptDetails(receiptId: number) {
+  try {
+    const result = await pool.query(`
+      SELECT it.id, it.quantity, it.unit_cost, sp.part_name, sp.description
+      FROM inventory_transactions it
+      JOIN spare_parts sp ON it.spare_part_id = sp.id
+      WHERE it.receipt_id = $1
+    `, [receiptId]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error fetching stock receipt details:', error);
     return [];
   }
 }

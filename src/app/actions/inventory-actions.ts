@@ -101,3 +101,87 @@ export async function getInventoryTransactionsAction(sparePartId?: number, limit
     return { success: false, data: [], error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
+
+// ============================================================================
+// PURCHASE ORDER / RECEIPT ACTIONS
+// ============================================================================
+
+import { writeFile, mkdir } from 'fs/promises';
+import { join } from 'path';
+import type { StockReceiptInput } from '@/lib/pg-db';
+
+/**
+ * Handle Purchase Order Intake
+ */
+export async function addStockReceiptAction(receipt: StockReceiptInput, addedBy?: string) {
+  try {
+    const { addStockReceipt } = await import('@/lib/pg-db');
+    const result = await addStockReceipt(receipt, addedBy);
+    return result;
+  } catch (error) {
+    console.error('Error in addStockReceiptAction:', error);
+    return { success: false, count: 0, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+/**
+ * Upload an invoice PDF
+ */
+export async function uploadInvoicePDFAction(formData: FormData) {
+  try {
+    const file = formData.get('file') as File;
+    if (!file) {
+      return { success: false, error: 'No file provided' };
+    }
+
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    // Create a safe filename with timestamp to prevent overwrites
+    const originalName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const safeName = `${Date.now()}-${originalName}`;
+    
+    // Save to public directory so it can be served by Next.js
+    const uploadDir = join(process.cwd(), 'public', 'uploads', 'invoices');
+    
+    // Ensure directory exists
+    try {
+      await mkdir(uploadDir, { recursive: true });
+    } catch (e) {
+      // Ignore if exists
+    }
+
+    const filepath = join(uploadDir, safeName);
+    await writeFile(filepath, buffer);
+
+    // Return the relative URL path to save in DB
+    const relativePath = `/uploads/invoices/${safeName}`;
+    return { success: true, path: relativePath };
+
+  } catch (error) {
+    console.error('Error uploading invoice:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Upload failed' };
+  }
+}
+
+export async function getStockReceiptsAction() {
+  try {
+    const { getStockReceipts } = await import('@/lib/pg-db');
+    const receipts = await getStockReceipts();
+    return { success: true, data: receipts };
+  } catch (error) {
+    console.error('Error in getStockReceiptsAction:', error);
+    return { success: false, data: [], error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+export async function getStockReceiptDetailsAction(receiptId: number) {
+  try {
+    const { getStockReceiptDetails } = await import('@/lib/pg-db');
+    const details = await getStockReceiptDetails(receiptId);
+    return { success: true, data: details };
+  } catch (error) {
+    console.error('Error in getStockReceiptDetailsAction:', error);
+    return { success: false, data: [], error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}

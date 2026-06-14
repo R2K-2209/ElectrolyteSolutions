@@ -885,10 +885,7 @@ export default function Home() {
 
         {activeTab === "inventory" && (
           <div className="w-full bg-white rounded-lg shadow-md p-6 flex-1">
-            <InventoryTab
-              dcNumbers={dcNumbers}
-              dcPartCodes={dcPartCodes}
-            />
+            <InventoryTab />
           </div>
         )}
       </main>
