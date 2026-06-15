@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs';
 
 export async function POST(request: Request) {
   try {
-    // For export, we'll use the repair_dashboard_view which provides combined data from normalized tables
+    // For export, we'll use the consolidated_data table which already has combined data
     // Get all consolidated data entries from the database
     const { getAllConsolidatedDataEntries } = await import('@/lib/pg-db');
     const allConsolidatedData = await getAllConsolidatedDataEntries();

@@ -5,13 +5,13 @@ import { getAllConsolidatedDataEntries, getConsolidatedDataEntriesByDcNo } from 
 /**
  * API Route: /api/export-excel
  *
- * Exports repair data entries to Excel via the repair_dashboard_view.
+ * Exports consolidated_data entries to Excel.
  * Queries the database directly on the server side to avoid body size limits.
- * The Excel columns match the view schema exactly — no renaming, no mapping.
+ * The Excel columns match the DB schema exactly — no renaming, no mapping.
  * Entries are sorted by part_code ASC, then sr_no ASC (numeric).
  */
 
-// DB columns in the exact order they appear in the repair_dashboard_view
+// DB columns in the exact order they appear in the consolidated_data table
 const DB_COLUMNS = [
   'id',
   'sr_no',

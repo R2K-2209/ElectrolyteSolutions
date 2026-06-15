@@ -17,6 +17,7 @@ import { DispatchTab } from '@/components/tag-entry/DispatchTab';
 import { ConsumptionTab } from '@/components/tag-entry/ConsumptionTab';
 import { SearchPCBTab } from '@/components/tag-entry/SearchPCBTab';
 import { BulkScrapTab } from '@/components/tag-entry/BulkScrapTab';
+import { InventoryTab } from '@/components/tag-entry/InventoryTab';
 import { ValidateConsumptionSection } from '@/components/validate-consumption-section';
 
 import { ScanText, Download, History, Plus, Trash2, MoreVertical, Edit, Eye } from 'lucide-react';
@@ -110,7 +111,7 @@ export default function Home() {
 
   // Tag Entry states
   const [activeTab, setActiveTab] = useState<
-    "tag-entry" | "dispatch" | "consumption" | "search-pcb" | "bulk-scrap"
+    "tag-entry" | "dispatch" | "consumption" | "search-pcb" | "bulk-scrap" | "inventory"
   >("tag-entry");
 
   // Separate engineer name states for each tab
@@ -789,6 +790,15 @@ export default function Home() {
             >
               Bulk Scrap
             </button>
+            <button
+              className={`py-2 px-4 font-medium text-sm ${activeTab === "inventory"
+                ? "border-b-2 border-indigo-500 text-indigo-600"
+                : "text-gray-500 hover:text-gray-700"
+                }`}
+              onClick={() => setActiveTab("inventory")}
+            >
+              Inventory
+            </button>
           </div>
           {activeTab === "consumption" && (
             <div className="flex items-center">
@@ -870,6 +880,12 @@ export default function Home() {
               dcNumbers={dcNumbers}
               dcPartCodes={dcPartCodes}
             />
+          </div>
+        )}
+
+        {activeTab === "inventory" && (
+          <div className="w-full bg-white rounded-lg shadow-md p-6 flex-1">
+            <InventoryTab />
           </div>
         )}
       </main>

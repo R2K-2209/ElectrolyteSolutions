@@ -252,7 +252,7 @@ export function ConsumptionTab({ dcNumbers = ['DC001', 'DC002'], dcPartCodes = {
 
       // First, search for existing entries by pcbSrNo
       const { searchConsolidatedDataEntriesByPcb } = await import('@/app/actions/consumption-actions');
-      const searchResult = await searchConsolidatedDataEntriesByPcb('', partCode, pcbSrNo);
+      const searchResult = await searchConsolidatedDataEntriesByPcb('', partCode, pcbSrNo, srNo);
       console.log('Search result:', searchResult);
 
       // Auto-populate form with fetched data

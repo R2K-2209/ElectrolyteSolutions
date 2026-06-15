@@ -246,10 +246,10 @@ export async function searchConsolidatedDataEntries(dcNo?: string, partCode?: st
 }
 
 // Server action to search consolidated data entries by PCB serial number
-export async function searchConsolidatedDataEntriesByPcb(dcNo?: string, partCode?: string, pcbSrNo?: string) {
+export async function searchConsolidatedDataEntriesByPcb(dcNo?: string, partCode?: string, pcbSrNo?: string, srNo?: string) {
   try {
     const { searchConsolidatedDataEntriesByPcb: searchFunction } = await import('@/lib/pg-db');
-    const entries = await searchFunction(dcNo, partCode, pcbSrNo);
+    const entries = await searchFunction(dcNo, partCode, pcbSrNo, srNo);
     return {
       success: true,
       data: entries
