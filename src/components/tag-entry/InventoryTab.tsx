@@ -31,6 +31,177 @@ import {
 import { parseInvoiceWithAIAction } from '@/app/actions/ai-actions';
 import { Sparkles } from 'lucide-react';
 
+// All component categories, in display order
+export type ComponentCategory =
+  | 'Resistors'
+  | 'Capacitors'
+  | 'Fuses'
+  | 'Diodes'
+  | 'Transistors'
+  | 'ICs / Regulators'
+  | 'Inductors'
+  | 'Connectors'
+  | 'Others';
+
+export const ALL_CATEGORIES: ComponentCategory[] = [
+  'Resistors', 'Capacitors', 'Fuses', 'Diodes', 'Transistors',
+  'ICs / Regulators', 'Inductors', 'Connectors', 'Others',
+];
+
+/** Keyword → category map used by search to show ALL members of a category */
+export const CATEGORY_ALIASES: Record<string, ComponentCategory> = {
+  // Resistors
+  'resistor': 'Resistors', 'resistors': 'Resistors', 'ohm': 'Resistors',
+  'ohms': 'Resistors', 'resistance': 'Resistors', 'preset': 'Resistors',
+  'potentiometer': 'Resistors', 'trimmer': 'Resistors',
+  // Capacitors
+  'capacitor': 'Capacitors', 'capacitors': 'Capacitors', 'cap': 'Capacitors',
+  'caps': 'Capacitors', 'farad': 'Capacitors', 'electrolytic': 'Capacitors',
+  // Fuses
+  'fuse': 'Fuses', 'fuses': 'Fuses',
+  // Diodes
+  'diode': 'Diodes', 'diodes': 'Diodes', 'led': 'Diodes', 'zener': 'Diodes',
+  'schottky': 'Diodes', 'rectifier': 'Diodes', 'avalanche': 'Diodes',
+  // Transistors
+  'transistor': 'Transistors', 'transistors': 'Transistors', 'bjt': 'Transistors',
+  'mosfet': 'Transistors', 'npn': 'Transistors', 'pnp': 'Transistors',
+  // ICs / Regulators
+  'ic': 'ICs / Regulators', 'ics': 'ICs / Regulators',
+  'regulator': 'ICs / Regulators', 'regulators': 'ICs / Regulators',
+  'ldo': 'ICs / Regulators', 'opamp': 'ICs / Regulators', 'op-amp': 'ICs / Regulators',
+  'voltage regulator': 'ICs / Regulators',
+  // Inductors
+  'inductor': 'Inductors', 'inductors': 'Inductors', 'transformer': 'Inductors',
+  'choke': 'Inductors', 'coil': 'Inductors', 'ferrite': 'Inductors',
+  // Connectors
+  'connector': 'Connectors', 'connectors': 'Connectors', 'terminal': 'Connectors',
+  'socket': 'Connectors', 'header': 'Connectors', 'lug': 'Connectors',
+};
+
+/** Per-category Tailwind colour tokens for header bars */
+export const CATEGORY_STYLES: Record<ComponentCategory, {
+  bg: string; text: string; dot: string; badge: string; shadow: string; border: string;
+}> = {
+  'Resistors':        { bg:'bg-amber-50/80',   text:'text-amber-700',   dot:'bg-amber-500',   badge:'bg-amber-100 text-amber-800',    shadow:'shadow-[0_0_8px_rgba(245,158,11,0.5)]',  border:'border-amber-100/60'   },
+  'Capacitors':       { bg:'bg-blue-50/80',    text:'text-blue-700',    dot:'bg-blue-500',    badge:'bg-blue-100 text-blue-800',      shadow:'shadow-[0_0_8px_rgba(59,130,246,0.5)]',  border:'border-blue-100/60'    },
+  'Fuses':            { bg:'bg-red-50/80',     text:'text-red-700',     dot:'bg-red-500',     badge:'bg-red-100 text-red-800',        shadow:'shadow-[0_0_8px_rgba(239,68,68,0.5)]',   border:'border-red-100/60'     },
+  'Diodes':           { bg:'bg-orange-50/80',  text:'text-orange-700',  dot:'bg-orange-500',  badge:'bg-orange-100 text-orange-800',  shadow:'shadow-[0_0_8px_rgba(249,115,22,0.5)]',  border:'border-orange-100/60'  },
+  'Transistors':      { bg:'bg-emerald-50/80', text:'text-emerald-700', dot:'bg-emerald-500', badge:'bg-emerald-100 text-emerald-800',shadow:'shadow-[0_0_8px_rgba(16,185,129,0.5)]',  border:'border-emerald-100/60' },
+  'ICs / Regulators': { bg:'bg-violet-50/80',  text:'text-violet-700',  dot:'bg-violet-500',  badge:'bg-violet-100 text-violet-800',  shadow:'shadow-[0_0_8px_rgba(139,92,246,0.5)]',  border:'border-violet-100/60'  },
+  'Inductors':        { bg:'bg-teal-50/80',    text:'text-teal-700',    dot:'bg-teal-500',    badge:'bg-teal-100 text-teal-800',      shadow:'shadow-[0_0_8px_rgba(20,184,166,0.5)]',  border:'border-teal-100/60'    },
+  'Connectors':       { bg:'bg-gray-50/80',    text:'text-gray-600',    dot:'bg-gray-400',    badge:'bg-gray-100 text-gray-700',      shadow:'shadow-[0_0_8px_rgba(107,114,128,0.5)]', border:'border-gray-100/60'    },
+  'Others':           { bg:'bg-slate-50/80',   text:'text-slate-600',   dot:'bg-slate-400',   badge:'bg-slate-100 text-slate-700',    shadow:'shadow-[0_0_8px_rgba(100,116,139,0.5)]', border:'border-slate-100/60'   },
+};
+
+/**
+ * Determine the component category for a spare part.
+ *
+ * Priority:
+ * 1. PCB reference designator prefix from bom_new.location (R→Resistors, EC→Capacitors, etc.)
+ * 2. Text-based analysis of part_name + description as fallback
+ */
+export function getCategory(
+  name: string,
+  description: string | null,
+  locationHint?: string | null,
+): ComponentCategory {
+  // ── 1. Location-prefix classification (most reliable) ────────────────────
+  if (locationHint && locationHint.trim()) {
+    // Strip trailing digits to get pure prefix: "R4" → "R", "EC1" → "EC"
+    const prefix = locationHint.trim().replace(/\d+.*$/, '').toUpperCase();
+    if (/^(R|RN|RP|PR)$/.test(prefix))           return 'Resistors';
+    if (/^(C|EC|BC|PC|CC)$/.test(prefix))         return 'Capacitors';
+    if (/^(F|FU)$/.test(prefix))                  return 'Fuses';
+    if (/^(D|ZD|LED|CR|BD|VD)$/.test(prefix))    return 'Diodes';
+    if (/^(Q|TR)$/.test(prefix))                  return 'Transistors';
+    if (/^(U|IC|VR)$/.test(prefix))               return 'ICs / Regulators';
+    if (/^(L|T|TX)$/.test(prefix))                return 'Inductors';
+    if (/^(J|P|CN|AC|PL|BT|X)$/.test(prefix))    return 'Connectors';
+    // BZ, SW, MOV, RLY, SP, LS → Others
+  }
+
+  // ── 2. Text-based fallback ────────────────────────────────────────────────
+  const text = `${name} ${description || ''}`.toLowerCase();
+
+  // Resistors
+  if (text.includes('ohm') || text.includes('ω') || text.includes('\u03a9') ||
+      text.includes('resistor') || text.includes('resister') ||
+      text.includes('preset') || text.includes('potentiometer') || text.includes('trimmer') ||
+      /\b\d+\s*e\b/.test(text) || /\b\d+e\b/.test(text))
+    return 'Resistors';
+
+  // Capacitors
+  if (text.includes('uf') || text.includes('nf') || text.includes('pf') ||
+      text.includes('µf') || text.includes('capacitor') || text.includes('mylar') ||
+      text.includes('polyester') || text.includes('electrolytic'))
+    return 'Capacitors';
+
+  // Fuses
+  if (text.includes('fuse')) return 'Fuses';
+
+  // Diodes (check before transistors)
+  if (text.includes('diode') || text.includes('zener') || text.includes('schottky') ||
+      text.includes('avalanche') || text.includes('rectifier') || text.includes('ultra-fast') ||
+      text.includes('byv') || text.includes('1n4'))
+    return 'Diodes';
+
+  // Transistors
+  if (text.includes('transistor') || text.includes('bjt') || text.includes('mosfet') ||
+      text.includes('npn') || text.includes('pnp') || text.includes('to-92') ||
+      text.includes('to-220') || text.includes('s8050') || text.includes('2n'))
+    return 'Transistors';
+
+  // ICs / Regulators
+  if (text.includes('regulator') || text.includes('ldo') || text.includes('op-amp') ||
+      text.includes('op amp') || text.includes('controller') || text.includes('driver') ||
+      text.includes('7805') || text.includes('7812') || text.includes('7815') ||
+      text.includes('integrated circuit'))
+    return 'ICs / Regulators';
+
+  // Inductors / Transformers
+  if (text.includes('inductor') || text.includes('choke') || text.includes('transformer') ||
+      text.includes('ferrite') || /\b\d+\s*(mh|\u00b5h|uh)\b/.test(text))
+    return 'Inductors';
+
+  // Connectors
+  if (text.includes('connector') || text.includes('lug') || text.includes('terminal') ||
+      text.includes('socket') || text.includes('header') || text.includes('pcb lug'))
+    return 'Connectors';
+
+  return 'Others';
+}
+
+function getPrefixFromCategory(category: ComponentCategory): string {
+  const map: Record<ComponentCategory, string> = {
+    'Resistors': 'R',
+    'Capacitors': 'C',
+    'Fuses': 'F',
+    'Diodes': 'D',
+    'Transistors': 'Q',
+    'ICs / Regulators': 'U',
+    'Inductors': 'L',
+    'Connectors': 'J',
+    'Others': 'SW'
+  };
+  return map[category] || 'SW';
+}
+
+function getCategoryNameFromPrefix(prefix?: string): string {
+  if (!prefix) return 'Others';
+  const map: Record<string, string> = {
+    'R': 'Resistor',
+    'C': 'Capacitor',
+    'F': 'Fuse',
+    'D': 'Diode',
+    'Q': 'Transistor',
+    'U': 'IC / Regulator',
+    'L': 'Inductor',
+    'J': 'Connector',
+    'SW': 'Others'
+  };
+  return map[prefix] || 'Others';
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -42,6 +213,7 @@ interface SparePartRow {
   stock_quantity: number;
   initial_quantity: number;
   reorder_threshold: number;
+  location_hint: string | null; // PCB reference designator from bom_new, e.g. "R4", "EC1"
 }
 
 interface Summary {
@@ -64,6 +236,7 @@ interface StockReceiptRow {
   total_amount: number;
   created_at: string;
   items_count: number;
+  subtotal: number; // sum of (quantity * unit_cost) from line items
 }
 
 interface CartItem {
@@ -75,6 +248,7 @@ interface CartItem {
   unitCost: number;
   reorderThreshold: number;
   currentStock?: number;
+  componentType?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,22 +390,43 @@ export function InventoryTab() {
   // -------------------------------------------------------------------------
   const searchResults = useMemo(() => {
     if (!cartSearch.trim()) return [];
-    const term = cartSearch.toLowerCase();
+    const term = cartSearch.toLowerCase().trim();
     // Exclude parts already in cart
     const cartPartIds = new Set(cart.filter(c => c.sparePartId).map(c => c.sparePartId));
     
     return globalParts
       .filter(p => !cartPartIds.has(p.id))
-      .filter(p => 
-        p.part_name.toLowerCase().includes(term) || 
-        (p.description && p.description.toLowerCase().includes(term))
-      ).slice(0, 8); // Top 8 results
+      .filter(p => {
+        const matchesDirect = p.part_name.toLowerCase().includes(term) || 
+                             (p.description && p.description.toLowerCase().includes(term));
+        if (matchesDirect) return true;
+        
+        // Category alias match — shows ALL members of a category
+        // Supports: exact key ("cap") AND prefix match ("capa" → "capacitor" → Capacitors)
+        let aliasCategory = CATEGORY_ALIASES[term];
+        if (!aliasCategory && term.length >= 3) {
+          // Collect all categories whose alias KEY starts with the typed term
+          const matchingCats = new Set(
+            (Object.entries(CATEGORY_ALIASES) as [string, ComponentCategory][])
+              .filter(([key]) => key.startsWith(term))
+              .map(([, cat]) => cat)
+          );
+          // Only activate if all matching keys agree on ONE category (avoids "trans" ambiguity)
+          if (matchingCats.size === 1) aliasCategory = [...matchingCats][0];
+        }
+        if (aliasCategory) {
+          return getCategory(p.part_name, p.description, p.location_hint) === aliasCategory;
+        }
+        return false;
+      }).slice(0, 20); // Top 20 results
   }, [globalParts, cartSearch, cart]);
 
   const addToCart = (part: SparePartRow | string) => {
     const tempId = Math.random().toString(36).substr(2, 9);
     
     if (typeof part === 'string') {
+      const category = getCategory(part, part);
+      const compType = getPrefixFromCategory(category);
       // Create brand new part
       setCart(prev => [...prev, {
         tempId,
@@ -240,6 +435,7 @@ export function InventoryTab() {
         quantity: 1,
         unitCost: 0,
         reorderThreshold: 5,
+        componentType: compType,
       }]);
     } else {
       // Add existing part
@@ -286,7 +482,9 @@ export function InventoryTab() {
     }
   };
 
-  const totalAmount = useMemo(() => cart.reduce((sum, item) => sum + (item.quantity * item.unitCost), 0), [cart]);
+  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + (item.quantity * item.unitCost), 0), [cart]);
+  const gstAmount = useMemo(() => subtotal * 0.18, [subtotal]);
+  const totalAmount = useMemo(() => subtotal * 1.18, [subtotal]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -310,15 +508,22 @@ export function InventoryTab() {
         });
 
         if (d.items && Array.isArray(d.items)) {
-          const newCartItems = d.items.map((item: any) => ({
-            tempId: Math.random().toString(36).substr(2, 9),
-            sparePartId: item.matchedSparePartId || undefined,
-            partName: item.matchedPartName || item.originalName,
-            description: item.originalName,
-            quantity: Number(item.quantity) || 1,
-            unitCost: Number(item.unitCost) || 0,
-            reorderThreshold: 5, // default
-          }));
+          const newCartItems = d.items.map((item: any) => {
+            const partName = item.matchedPartName || item.originalName;
+            const desc = item.originalName;
+            const category = getCategory(partName, desc);
+            const compType = getPrefixFromCategory(category);
+            return {
+              tempId: Math.random().toString(36).substr(2, 9),
+              sparePartId: item.matchedSparePartId || undefined,
+              partName,
+              description: desc,
+              quantity: Number(item.quantity) || 1,
+              unitCost: Number(item.unitCost) || 0,
+              reorderThreshold: 5, // default
+              componentType: compType,
+            };
+          });
           setCart(newCartItems);
           toast({ title: 'AI Parsing Complete', description: `Successfully mapped ${newCartItems.length} items from the invoice.` });
         }
@@ -368,7 +573,8 @@ export function InventoryTab() {
         description: c.description,
         quantity: c.quantity,
         unitCost: c.unitCost,
-        reorderThreshold: c.reorderThreshold
+        reorderThreshold: c.reorderThreshold,
+        componentType: c.componentType
       }))
     }, user?.name || user?.email || 'Unknown');
 
@@ -398,8 +604,28 @@ export function InventoryTab() {
     let filtered = globalParts;
     if (showLowOnly) filtered = filtered.filter(p => p.stock_quantity <= p.reorder_threshold);
     if (invSearch) {
-      const term = invSearch.toLowerCase();
-      filtered = filtered.filter(p => p.part_name.toLowerCase().includes(term) || (p.description && p.description.toLowerCase().includes(term)));
+      const term = invSearch.toLowerCase().trim();
+      filtered = filtered.filter(p => {
+        const matchesDirect = p.part_name.toLowerCase().includes(term) || 
+                             (p.description && p.description.toLowerCase().includes(term));
+        if (matchesDirect) return true;
+        
+        // Category alias match — shows ALL members of a category
+        // Supports: exact key ("cap") AND prefix match ("capa" → "capacitor" → Capacitors)
+        let aliasCategory = CATEGORY_ALIASES[term];
+        if (!aliasCategory && term.length >= 3) {
+          const matchingCats = new Set(
+            (Object.entries(CATEGORY_ALIASES) as [string, ComponentCategory][])
+              .filter(([key]) => key.startsWith(term))
+              .map(([, cat]) => cat)
+          );
+          if (matchingCats.size === 1) aliasCategory = [...matchingCats][0];
+        }
+        if (aliasCategory) {
+          return getCategory(p.part_name, p.description, p.location_hint) === aliasCategory;
+        }
+        return false;
+      });
     }
 
     const sorted = [...filtered];
@@ -672,7 +898,28 @@ export function InventoryTab() {
                                    <span className="font-bold text-gray-900 truncate text-base">{item.partName}</span>
                                    {!item.sparePartId && <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-2 py-0.5 rounded-full border border-amber-200">NEW PART</span>}
                                 </div>
-                                {item.sparePartId && <p className="text-xs font-medium text-gray-500">Current Stock: <span className="font-bold">{item.currentStock}</span></p>}
+                                {item.sparePartId ? (
+                                   <p className="text-xs font-medium text-gray-500">Current Stock: <span className="font-bold">{item.currentStock}</span></p>
+                                ) : (
+                                   <div className="mt-2 flex items-center gap-2">
+                                      <span className="text-[10px] text-gray-400 font-bold uppercase">Type:</span>
+                                      <select 
+                                         value={item.componentType || 'SW'} 
+                                         onChange={e => updateCartItem(item.tempId, 'componentType', e.target.value)}
+                                         className="text-xs font-bold text-gray-700 bg-gray-50 border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                      >
+                                         <option value="R">Resistor (R)</option>
+                                         <option value="C">Capacitor (C)</option>
+                                         <option value="F">Fuse (F)</option>
+                                         <option value="D">Diode (D)</option>
+                                         <option value="Q">Transistor (Q)</option>
+                                         <option value="U">IC / Regulator (U)</option>
+                                         <option value="L">Inductor (L)</option>
+                                         <option value="J">Connector (J)</option>
+                                         <option value="SW">Others (SW)</option>
+                                      </select>
+                                   </div>
+                                )}
                              </div>
                              
                              <div>
@@ -787,7 +1034,7 @@ export function InventoryTab() {
                 <div>Description</div>
                 <div className="text-center">Qty</div>
                 <div className="text-right">Unit Price</div>
-                <div className="text-right">Amount</div>
+                <div className="text-right">Amount (Incl. GST)</div>
              </div>
              
              <div className="space-y-3">
@@ -795,13 +1042,38 @@ export function InventoryTab() {
                    <div key={item.tempId} className="grid grid-cols-[1fr_80px_100px_120px] gap-4 items-center py-2 border-b border-gray-100">
                       <div>
                          <p className="font-bold text-gray-900">{item.partName}</p>
-                         {!item.sparePartId && <p className="text-[10px] text-amber-600 font-bold mt-0.5">Will be created as new part</p>}
+                         {!item.sparePartId && (
+                            <p className="text-[10px] text-amber-600 font-bold mt-0.5">
+                               Will be created as new part ({getCategoryNameFromPrefix(item.componentType)})
+                            </p>
+                         )}
                       </div>
                       <div className="text-center font-black text-gray-700">{item.quantity}</div>
                       <div className="text-right font-medium text-gray-600">₹{item.unitCost.toFixed(2)}</div>
-                      <div className="text-right font-black text-gray-900">₹{(item.quantity * item.unitCost).toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
+                      <div className="text-right">
+                         <div className="font-black text-gray-900">₹{(item.quantity * item.unitCost * 1.18).toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
+                         <div className="text-[10px] text-gray-400 font-bold mt-0.5">
+                            (GST: ₹{(item.quantity * item.unitCost * 0.18).toLocaleString('en-IN', {minimumFractionDigits: 2})})
+                         </div>
+                      </div>
                    </div>
                 ))}
+             </div>
+             
+             {/* Financial breakdown including GST */}
+             <div className="mt-6 border-t-2 border-gray-200 pt-4 space-y-2">
+                <div className="flex justify-between text-sm text-gray-600 font-medium">
+                   <span>Subtotal (Excl. GST)</span>
+                   <span>₹{subtotal.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-600 font-medium">
+                   <span>GST (18%)</span>
+                   <span>₹{gstAmount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                </div>
+                <div className="flex justify-between text-base font-black text-gray-900 border-t border-gray-200 pt-2">
+                   <span>Grand Total (Incl. GST)</span>
+                   <span>₹{totalAmount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                </div>
              </div>
           </div>
           
@@ -846,25 +1118,45 @@ export function InventoryTab() {
                <div className="text-center">System Status</div>
              </div>
              <div className="overflow-y-auto flex-1">
-               {sortedInvParts.map(sp => {
-                 const isLow = sp.stock_quantity > 0 && sp.stock_quantity <= sp.reorder_threshold;
-                 const isOut = sp.stock_quantity === 0;
-                 return (
-                   <div key={sp.id} className="grid grid-cols-[1fr_120px_120px_140px] gap-4 px-6 py-4 border-b border-gray-100 items-center group hover:bg-gray-50/50 transition-colors">
-                     <div className="min-w-0">
-                       <p className="text-base font-bold text-gray-900 truncate">{sp.part_name}</p>
-                       {sp.description && sp.description !== sp.part_name && <p className="text-xs font-medium text-gray-400 truncate mt-0.5">{sp.description}</p>}
-                     </div>
-                     <div className="text-right font-black text-lg">{sp.stock_quantity}</div>
-                     <div className="text-right font-bold text-gray-400">{sp.reorder_threshold}</div>
-                     <div className="flex justify-center">
-                       {isOut ? <span className="bg-red-50 text-red-700 px-3 py-1 rounded-lg font-bold text-xs border border-red-100">CRITICAL</span> : 
-                        isLow ? <span className="bg-amber-50 text-amber-700 px-3 py-1 rounded-lg font-bold text-xs border border-amber-100">WARNING</span> : 
-                        <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg font-bold text-xs border border-emerald-100">HEALTHY</span>}
-                     </div>
-                   </div>
-                 );
-               })}
+                {ALL_CATEGORIES.map(category => {
+                  const items = sortedInvParts.filter(
+                    p => getCategory(p.part_name, p.description, p.location_hint) === category
+                  );
+                  if (items.length === 0) return null;
+                  const s = CATEGORY_STYLES[category];
+                  
+                  return (
+                    <div key={category} className="flex flex-col">
+                      {/* Category Header */}
+                      <div className={`${s.bg} px-6 py-3.5 text-xs font-black ${s.text} uppercase tracking-wider sticky top-0 z-10 backdrop-blur-sm border-y ${s.border} flex items-center gap-2`}>
+                        <span className={`w-2.5 h-2.5 rounded-full ${s.dot} ${s.shadow}`}></span>
+                        {category}
+                        <span className={`text-[10px] ${s.badge} px-2.5 py-0.5 rounded-full font-black ml-1.5`}>{items.length}</span>
+                      </div>
+                      
+                      {/* Category Rows */}
+                      {items.map(sp => {
+                        const isLow = sp.stock_quantity > 0 && sp.stock_quantity <= sp.reorder_threshold;
+                        const isOut = sp.stock_quantity === 0;
+                        return (
+                          <div key={sp.id} className="grid grid-cols-[1fr_120px_120px_140px] gap-4 px-6 py-4 border-b border-gray-100 items-center group hover:bg-gray-50/50 transition-colors">
+                            <div className="min-w-0">
+                              <p className="text-base font-bold text-gray-900 truncate">{sp.part_name}</p>
+                              {sp.description && sp.description !== sp.part_name && <p className="text-xs font-medium text-gray-400 truncate mt-0.5">{sp.description}</p>}
+                            </div>
+                            <div className="text-right font-black text-lg">{sp.stock_quantity}</div>
+                            <div className="text-right font-bold text-gray-400">{sp.reorder_threshold}</div>
+                            <div className="flex justify-center">
+                              {isOut ? <span className="bg-red-50 text-red-700 px-3 py-1 rounded-lg font-bold text-xs border border-red-100">CRITICAL</span> : 
+                               isLow ? <span className="bg-amber-50 text-amber-700 px-3 py-1 rounded-lg font-bold text-xs border border-amber-100">WARNING</span> : 
+                               <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg font-bold text-xs border border-emerald-100">HEALTHY</span>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
              </div>
            </div>
          </div>
@@ -901,7 +1193,20 @@ export function InventoryTab() {
                        {po.invoice_file_path && <a href={po.invoice_file_path} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline ml-2 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> PDF attached</a>}
                      </p>
                    </div>
-                   <div className="text-right font-black text-emerald-600">₹{Number(po.total_amount).toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
+                    <div className="text-right">
+                      {(() => {
+                        // Prefer the dynamically-computed subtotal (sum of line items);
+                        // fall back to stored total_amount for backward-compat if subtotal is 0.
+                        const sub = Number(po.subtotal) > 0 ? Number(po.subtotal) : Number(po.total_amount) / 1.18;
+                        const gstInclusive = sub * 1.18;
+                        return (
+                          <>
+                            <div className="font-black text-emerald-600">₹{gstInclusive.toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
+                            <div className="text-[10px] text-gray-400 font-bold mt-0.5">(GST: ₹{(sub * 0.18).toLocaleString('en-IN', {minimumFractionDigits: 2})})</div>
+                          </>
+                        );
+                      })()}
+                    </div>
                    <div className="text-right font-bold text-gray-500">{po.items_count} parts</div>
                    <div className="flex justify-center">
                      <Button variant="outline" size="sm" onClick={() => viewReceiptDetails(po.id)} className="h-8 rounded-lg text-xs font-bold border-gray-200">
@@ -930,7 +1235,7 @@ export function InventoryTab() {
                         <div>Component</div>
                         <div className="text-center">Qty</div>
                         <div className="text-right">Unit Price</div>
-                        <div className="text-right">Total</div>
+                        <div className="text-right">Total (Incl. GST)</div>
                      </div>
                      {receiptDetails.map(item => (
                        <div key={item.id} className="grid grid-cols-[1fr_80px_100px_120px] gap-4 py-3 border-b border-gray-50 items-center">
@@ -940,9 +1245,37 @@ export function InventoryTab() {
                          </div>
                          <div className="text-center font-black text-gray-700">{item.quantity}</div>
                          <div className="text-right font-medium text-gray-500">₹{Number(item.unit_cost).toFixed(2)}</div>
-                         <div className="text-right font-black text-gray-900">₹{(item.quantity * item.unit_cost).toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
+                         <div className="text-right">
+                           <div className="font-black text-gray-900">₹{(item.quantity * item.unit_cost * 1.18).toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
+                           <div className="text-[10px] text-gray-400 font-bold mt-0.5">
+                             (GST: ₹{(item.quantity * item.unit_cost * 0.18).toLocaleString('en-IN', {minimumFractionDigits: 2})})
+                           </div>
+                         </div>
                        </div>
                      ))}
+                     
+                     {/* Breakdown for Receipt Details */}
+                     {receiptDetails.length > 0 && (() => {
+                        const sub = receiptDetails.reduce((sum, item) => sum + (item.quantity * Number(item.unit_cost)), 0);
+                        const gst = sub * 0.18;
+                        const tot = sub * 1.18;
+                        return (
+                          <div className="mt-4 pt-3 border-t-2 border-dashed border-gray-200 space-y-1.5 text-sm text-gray-600 font-medium">
+                            <div className="flex justify-between">
+                              <span>Subtotal</span>
+                              <span>₹{sub.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>GST (18%)</span>
+                              <span>₹{gst.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                            </div>
+                            <div className="flex justify-between font-black text-gray-900 border-t border-gray-100 pt-1.5">
+                              <span>Total (Incl. GST)</span>
+                              <span>₹{tot.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                            </div>
+                          </div>
+                        );
+                     })()}
                    </div>
                  )}
                </div>

@@ -185,6 +185,12 @@ export async function initializeDatabase() {
     `);
 
     console.log('Database initialized successfully');
+
+    // ── Migration: add location_prefix to spare_parts (idempotent) ──────────
+    try {
+      await pool.query(`ALTER TABLE spare_parts ADD COLUMN IF NOT EXISTS location_prefix VARCHAR(20);`);
+    } catch (_) { /* column may already exist */ }
+
   } catch (error) {
     console.error('Error initializing database:', error);
     throw error;
@@ -1696,6 +1702,8 @@ export interface SparePart {
   reorder_threshold: number;
   created_at: string;
   updated_at: string;
+  location_hint: string | null;   // from bom_new.location OR spare_parts.location_prefix
+  location_prefix: string | null; // manually assigned prefix for standalone parts
 }
 
 export interface InventoryTransaction {
@@ -1791,23 +1799,32 @@ export async function getAllSpareParts(options?: {
 }): Promise<SparePart[]> {
   try {
     let baseQuery = `
-      SELECT id, part_name, description, stock_quantity, initial_quantity, reorder_threshold, updated_at 
-      FROM spare_parts
+      SELECT
+        sp.id, sp.part_name, sp.description, sp.stock_quantity, sp.initial_quantity,
+        sp.reorder_threshold, sp.updated_at, sp.location_prefix,
+        COALESCE(
+          (SELECT b.location FROM bom_new b WHERE b.spare_part_id = sp.id ORDER BY b.location LIMIT 1),
+          sp.location_prefix
+        ) AS location_hint
+      FROM spare_parts sp
       UNION ALL
-      SELECT 
-        -(row_number() over ()) as id,
-        description as part_name,
-        description as description,
-        0 as stock_quantity,
-        0 as initial_quantity,
-        0 as reorder_threshold,
-        CURRENT_TIMESTAMP as updated_at
+      SELECT
+        -(row_number() over ()) AS id,
+        unmatched.description AS part_name,
+        unmatched.description AS description,
+        0 AS stock_quantity,
+        0 AS initial_quantity,
+        0 AS reorder_threshold,
+        CURRENT_TIMESTAMP AS updated_at,
+        unmatched.location AS location_prefix,
+        unmatched.location AS location_hint
       FROM (
-        SELECT DISTINCT description 
-        FROM bom_new 
-        WHERE description IS NOT NULL AND description != '' 
-        AND description NOT IN (SELECT part_name FROM spare_parts)
-      ) as unmatched_bom
+        SELECT DISTINCT ON (description) description, location
+        FROM bom_new
+        WHERE description IS NOT NULL AND description != ''
+          AND description NOT IN (SELECT part_name FROM spare_parts)
+        ORDER BY description, location
+      ) AS unmatched
     `;
 
     let query = `SELECT * FROM (${baseQuery}) as combined WHERE TRUE`;
@@ -2053,12 +2070,13 @@ export async function getInventoryTransactions(
 // ============================================================================
 
 export interface ReceiptItem {
-  sparePartId?: number; // If existing component
+  sparePartId?: number;      // If existing component
   partName: string;
   description: string;
   quantity: number;
   unitCost: number;
   reorderThreshold: number;
+  componentType?: string;    // PCB prefix for new parts, e.g. 'R', 'C', 'Q', 'D', 'U', 'F', 'L', 'J', 'SW'
 }
 
 export interface StockReceiptInput {
@@ -2099,20 +2117,33 @@ export async function addStockReceipt(
     for (const item of receipt.items) {
       if (item.quantity <= 0) continue;
 
-      // Upsert spare part
+      // Upsert spare part, also set location_prefix for new parts that supply one
       const upsertResult = await client.query(`
-        INSERT INTO spare_parts (part_name, description, stock_quantity, initial_quantity, reorder_threshold, updated_at)
-        VALUES ($1, $2, $3, $3, $4, CURRENT_TIMESTAMP)
+        INSERT INTO spare_parts (part_name, description, stock_quantity, initial_quantity, reorder_threshold, location_prefix, updated_at)
+        VALUES ($1, $2, $3, $3, $4, $5, CURRENT_TIMESTAMP)
         ON CONFLICT (part_name) DO UPDATE SET
           stock_quantity = spare_parts.stock_quantity + $3,
           initial_quantity = spare_parts.initial_quantity + $3,
           description = COALESCE(NULLIF(EXCLUDED.description, ''), spare_parts.description),
           reorder_threshold = GREATEST(spare_parts.reorder_threshold, EXCLUDED.reorder_threshold),
+          location_prefix = COALESCE(spare_parts.location_prefix, EXCLUDED.location_prefix),
           updated_at = CURRENT_TIMESTAMP
         RETURNING id
-      `, [item.partName.trim(), item.description.trim(), item.quantity, item.reorderThreshold]);
+      `, [item.partName.trim(), item.description.trim(), item.quantity, item.reorderThreshold,
+          item.componentType || null]);
 
       const sparePartId = upsertResult.rows[0].id;
+
+      // Automatically link unmatched bom_new entries to this spare part by description
+      await client.query(`
+        UPDATE bom_new
+        SET spare_part_id = $1
+        WHERE spare_part_id IS NULL
+          AND (
+            LOWER(TRIM(description)) = LOWER(TRIM($2))
+            OR LOWER(TRIM(description)) = LOWER(TRIM($3))
+          )
+      `, [sparePartId, item.partName, item.description]);
 
       // Log transaction with receipt_id and unit_cost
       const notes = `PO Intake via Invoice ${receipt.invoiceNo}`;
@@ -2142,7 +2173,8 @@ export async function getStockReceipts() {
   try {
     const result = await pool.query(`
       SELECT sr.*, 
-             (SELECT COUNT(*) FROM inventory_transactions it WHERE it.receipt_id = sr.id) as items_count
+             (SELECT COUNT(*) FROM inventory_transactions it WHERE it.receipt_id = sr.id) as items_count,
+             COALESCE((SELECT SUM(it.quantity * it.unit_cost) FROM inventory_transactions it WHERE it.receipt_id = sr.id), 0) as subtotal
       FROM stock_receipts sr
       ORDER BY sr.received_date DESC, sr.created_at DESC
     `);
