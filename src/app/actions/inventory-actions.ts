@@ -111,6 +111,19 @@ import { join } from 'path';
 import type { StockReceiptInput } from '@/lib/pg-db';
 
 /**
+ * Check if an invoice number already exists in stock_receipts
+ */
+export async function checkDuplicateInvoiceAction(invoiceNo: string) {
+  try {
+    const { checkDuplicateInvoice } = await import('@/lib/pg-db');
+    return await checkDuplicateInvoice(invoiceNo);
+  } catch (error) {
+    console.error('Error in checkDuplicateInvoiceAction:', error);
+    return { exists: false };
+  }
+}
+
+/**
  * Handle Purchase Order Intake
  */
 export async function addStockReceiptAction(receipt: StockReceiptInput, addedBy?: string) {

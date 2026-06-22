@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Package, Plus, Minus, BarChart3, TrendingDown, Boxes, ArrowLeft,
   Search, Check, Loader2, AlertTriangle, ArrowUpDown, Filter, X, 
-  Zap, Trash2, ShoppingCart, Upload, FileText, Receipt, Keyboard, Calculator, CheckCircle2
+  Zap, Trash2, ShoppingCart, Upload, FileText, Receipt, Keyboard, Calculator, CheckCircle2, Lock, Unlock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,7 @@ import {
 import {
   getAllSparePartsAction,
   addStockReceiptAction,
+  checkDuplicateInvoiceAction,
   uploadInvoicePDFAction,
   getInventorySummaryAction,
   getStockReceiptsAction,
@@ -249,6 +250,7 @@ interface CartItem {
   reorderThreshold: number;
   currentStock?: number;
   componentType?: string;
+  isLocked?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +438,7 @@ export function InventoryTab() {
         unitCost: 0,
         reorderThreshold: 5,
         componentType: compType,
+        isLocked: true,
       }]);
     } else {
       // Add existing part
@@ -447,7 +450,8 @@ export function InventoryTab() {
         quantity: 1,
         unitCost: 0,
         reorderThreshold: part.reorder_threshold,
-        currentStock: part.stock_quantity
+        currentStock: part.stock_quantity,
+        isLocked: true,
       }]);
     }
     setCartSearch('');
@@ -522,6 +526,7 @@ export function InventoryTab() {
               unitCost: Number(item.unitCost) || 0,
               reorderThreshold: 5, // default
               componentType: compType,
+              isLocked: true,
             };
           });
           setCart(newCartItems);
@@ -544,6 +549,37 @@ export function InventoryTab() {
     }
 
     setSubmitting(true);
+
+    // 0. Check for duplicate invoice number
+    try {
+      const dupCheck = await checkDuplicateInvoiceAction(poInfo.invoiceNo);
+      if (dupCheck.exists && dupCheck.existingReceipt) {
+        const existing = dupCheck.existingReceipt;
+        const dateStr = existing.received_date ? new Date(existing.received_date).toLocaleDateString('en-IN') : 'N/A';
+        const amountStr = Number(existing.total_amount).toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
+        
+        const confirmDuplicate = window.confirm(
+          `⚠️ DUPLICATE INVOICE DETECTED!\n\n` +
+          `Invoice "${existing.invoice_no}" already exists in the system:\n\n` +
+          `  • Vendor: ${existing.vendor_name}\n` +
+          `  • Date: ${dateStr}\n` +
+          `  • Amount: ${amountStr}\n` +
+          `  • Items: ${existing.items_count} parts\n\n` +
+          `This invoice has already been processed. Submitting again will create DUPLICATE stock entries.\n\n` +
+          `Do you still want to proceed?`
+        );
+        
+        if (!confirmDuplicate) {
+          toast({ variant: 'destructive', title: 'Submission Cancelled', description: `Invoice "${existing.invoice_no}" already exists. Duplicate entry prevented.` });
+          setSubmitting(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('Error checking duplicate invoice:', err);
+      // Continue even if check fails — don't block the user
+    }
+
     let invoiceFilePath = undefined;
 
     // 1. Upload PDF if exists
@@ -800,10 +836,22 @@ export function InventoryTab() {
                 <label className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl cursor-pointer transition-colors ${invoiceFile ? 'border-emerald-400 bg-emerald-50 mb-3' : 'border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-indigo-400'}`}>
                    <input type="file" className="hidden" accept=".pdf,image/*" onChange={handleFileUpload} />
                    {invoiceFile ? (
-                      <div className="text-center p-4">
-                         <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2"><Check className="h-6 w-6"/></div>
-                         <p className="text-sm font-bold text-gray-800 truncate max-w-[200px]">{invoiceFile.name}</p>
-                         <p className="text-xs text-gray-500 mt-1">{(invoiceFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                      <div className="text-center p-4 relative w-full group">
+                         <button 
+                            type="button"
+                            onClick={(e) => {
+                               e.preventDefault();
+                               e.stopPropagation();
+                               setInvoiceFile(null);
+                            }}
+                            className="absolute top-2 right-2 p-1.5 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-all hover:bg-red-200 hover:scale-110"
+                            title="Remove file"
+                         >
+                            <X className="h-4 w-4" />
+                         </button>
+                         <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2 shadow-sm"><Check className="h-6 w-6"/></div>
+                         <p className="text-sm font-bold text-gray-800 truncate max-w-[200px] mx-auto">{invoiceFile.name}</p>
+                         <p className="text-xs text-gray-500 mt-1 font-medium">{(invoiceFile.size / 1024 / 1024).toFixed(2)} MB</p>
                       </div>
                    ) : (
                       <div className="text-center p-4 text-gray-500">
@@ -883,8 +931,21 @@ export function InventoryTab() {
                     </div>
                  ) : (
                     <div className="space-y-4">
+                       {cart.some(item => !item.sparePartId) && (
+                           <div className="bg-red-50 border-2 border-red-200 text-red-700 p-4 rounded-xl flex items-start gap-3 shadow-sm animate-in fade-in">
+                              <AlertTriangle className="h-6 w-6 text-red-500 shrink-0 mt-0.5" />
+                              <div>
+                                 <p className="font-black text-red-800">New Components Detected!</p>
+                                 <p className="text-sm font-medium mt-0.5 opacity-90">
+                                    You are adding components that don't currently exist in the master database. 
+                                    They will be automatically created as new spare parts once you confirm this PO.
+                                 </p>
+                              </div>
+                           </div>
+                        )}
+
                        {/* Table Header */}
-                       <div className="grid grid-cols-[1fr_120px_140px_40px] gap-6 px-4 text-xs font-black text-gray-400 uppercase tracking-wider">
+                       <div className="grid grid-cols-[1fr_120px_140px_80px] gap-6 px-4 text-xs font-black text-gray-400 uppercase tracking-wider">
                           <div>Component</div>
                           <div className="text-center">Received Qty</div>
                           <div className="text-right">Unit Cost (₹)</div>
@@ -892,7 +953,7 @@ export function InventoryTab() {
                        </div>
                        
                        {cart.map((item, index) => (
-                          <div key={item.tempId} className="grid grid-cols-[1fr_120px_140px_40px] gap-6 items-center bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:border-indigo-300 transition-colors group">
+                          <div key={item.tempId} className={`grid grid-cols-[1fr_120px_140px_80px] gap-6 items-center bg-white p-4 rounded-2xl border ${item.isLocked ? 'border-gray-300 bg-gray-50 opacity-90' : 'border-gray-200'} shadow-sm hover:border-indigo-300 transition-colors group`}>
                              <div className="min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
                                    <span className="font-bold text-gray-900 truncate text-base">{item.partName}</span>
@@ -906,7 +967,8 @@ export function InventoryTab() {
                                       <select 
                                          value={item.componentType || 'SW'} 
                                          onChange={e => updateCartItem(item.tempId, 'componentType', e.target.value)}
-                                         className="text-xs font-bold text-gray-700 bg-gray-50 border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                         disabled={item.isLocked}
+                                         className={`text-xs font-bold text-gray-700 bg-gray-50 border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 ${item.isLocked ? 'cursor-not-allowed opacity-70' : ''}`}
                                       >
                                          <option value="R">Resistor (R)</option>
                                          <option value="C">Capacitor (C)</option>
@@ -926,7 +988,8 @@ export function InventoryTab() {
                                 <input 
                                    ref={(el) => { qtyRefs.current[item.tempId] = el; }}
                                    type="number" 
-                                   className="w-full h-11 text-center text-base font-black border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:bg-indigo-50 outline-none transition-colors"
+                                   disabled={item.isLocked}
+                                   className={`w-full h-11 text-center text-base font-black border-2 rounded-xl focus:outline-none transition-colors ${item.isLocked ? 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed' : 'border-gray-200 focus:border-indigo-500 focus:bg-indigo-50'}`}
                                    value={item.quantity || ''}
                                    onChange={e => updateCartItem(item.tempId, 'quantity', parseInt(e.target.value) || 0)}
                                    onKeyDown={e => handleKeyDown(e, item.tempId, 'qty')}
@@ -935,11 +998,12 @@ export function InventoryTab() {
                              </div>
                              
                              <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold">₹</span>
+                                <span className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold ${item.isLocked ? 'text-gray-300' : 'text-gray-400'}`}>₹</span>
                                 <input 
                                    ref={(el) => { costRefs.current[item.tempId] = el; }}
                                    type="number" step="0.01"
-                                   className="w-full h-11 pl-7 pr-3 text-right text-base font-black border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:bg-emerald-50 outline-none transition-colors"
+                                   disabled={item.isLocked}
+                                   className={`w-full h-11 pl-7 pr-3 text-right text-base font-black border-2 rounded-xl focus:outline-none transition-colors ${item.isLocked ? 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed' : 'border-gray-200 focus:border-emerald-500 focus:bg-emerald-50'}`}
                                    value={item.unitCost || ''}
                                    onChange={e => updateCartItem(item.tempId, 'unitCost', parseFloat(e.target.value) || 0)}
                                    onKeyDown={e => handleKeyDown(e, item.tempId, 'cost')}
@@ -947,9 +1011,23 @@ export function InventoryTab() {
                                 />
                              </div>
                              
-                             <button onClick={() => removeFromCart(item.tempId)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors">
-                                <Trash2 className="h-5 w-5" />
-                             </button>
+                             <div className="flex items-center gap-1">
+                                <button 
+                                   onClick={() => updateCartItem(item.tempId, 'isLocked', !item.isLocked)} 
+                                   className={`p-2 rounded-xl transition-colors ${item.isLocked ? 'text-indigo-500 bg-indigo-50 hover:bg-indigo-100' : 'text-gray-300 hover:text-gray-500 hover:bg-gray-50'}`}
+                                   title={item.isLocked ? "Unlock item" : "Lock item to prevent changes"}
+                                >
+                                   {item.isLocked ? <Lock className="h-5 w-5" /> : <Unlock className="h-5 w-5" />}
+                                </button>
+                                <button 
+                                   onClick={() => !item.isLocked && removeFromCart(item.tempId)} 
+                                   disabled={item.isLocked}
+                                   className={`p-2 rounded-xl transition-colors ${item.isLocked ? 'text-gray-200 cursor-not-allowed' : 'text-gray-300 hover:text-red-500 hover:bg-red-50'}`}
+                                   title={item.isLocked ? "Unlock to delete" : "Remove item"}
+                                >
+                                   <Trash2 className="h-5 w-5" />
+                                </button>
+                             </div>
                           </div>
                        ))}
                     </div>
@@ -992,6 +1070,14 @@ export function InventoryTab() {
       <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
         <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden bg-gray-50 rounded-3xl border-0 shadow-2xl">
           <DialogTitle className="sr-only">Stock Receipt Review</DialogTitle>
+          
+          {cart.some(item => !item.sparePartId) && (
+             <div className="bg-red-600 text-white p-3 flex items-center justify-center gap-2 font-bold shadow-md relative z-10 animate-in slide-in-from-top-full">
+                <AlertTriangle className="h-5 w-5" />
+                WARNING: This receipt contains NEW components that do not exist in the database yet.
+             </div>
+          )}
+
           {/* Header - Looks like a receipt header */}
           <div className="px-8 py-8 bg-white border-b-2 border-dashed border-gray-300 relative">
              <div className="absolute top-0 left-0 w-full h-2 bg-indigo-600"></div>
@@ -1039,24 +1125,27 @@ export function InventoryTab() {
              
              <div className="space-y-3">
                 {cart.map(item => (
-                   <div key={item.tempId} className="grid grid-cols-[1fr_80px_100px_120px] gap-4 items-center py-2 border-b border-gray-100">
-                      <div>
-                         <p className="font-bold text-gray-900">{item.partName}</p>
-                         {!item.sparePartId && (
-                            <p className="text-[10px] text-amber-600 font-bold mt-0.5">
-                               Will be created as new part ({getCategoryNameFromPrefix(item.componentType)})
-                            </p>
-                         )}
-                      </div>
-                      <div className="text-center font-black text-gray-700">{item.quantity}</div>
-                      <div className="text-right font-medium text-gray-600">₹{item.unitCost.toFixed(2)}</div>
-                      <div className="text-right">
-                         <div className="font-black text-gray-900">₹{(item.quantity * item.unitCost * 1.18).toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
-                         <div className="text-[10px] text-gray-400 font-bold mt-0.5">
-                            (GST: ₹{(item.quantity * item.unitCost * 0.18).toLocaleString('en-IN', {minimumFractionDigits: 2})})
-                         </div>
-                      </div>
-                   </div>
+                   <div 
+                      key={item.tempId} 
+                      className={`grid grid-cols-[1fr_80px_100px_120px] gap-4 items-center p-3 -mx-3 rounded-xl border ${!item.sparePartId ? 'bg-red-50 border-red-200 shadow-sm' : 'border-transparent hover:bg-gray-50'}`}
+                    >
+                       <div>
+                          <p className={`font-bold ${!item.sparePartId ? 'text-red-900' : 'text-gray-900'}`}>{item.partName}</p>
+                          {!item.sparePartId && (
+                             <p className="text-[10px] text-red-600 font-bold mt-0.5">
+                                Will be created as new part ({getCategoryNameFromPrefix(item.componentType)})
+                             </p>
+                          )}
+                       </div>
+                       <div className="text-center font-black text-gray-700">{item.quantity}</div>
+                       <div className="text-right font-medium text-gray-600">₹{item.unitCost.toFixed(2)}</div>
+                       <div className="text-right">
+                          <div className={`font-black ${!item.sparePartId ? 'text-red-900' : 'text-gray-900'}`}>₹{(item.quantity * item.unitCost * 1.18).toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
+                          <div className="text-[10px] text-gray-400 font-bold mt-0.5">
+                             (GST: ₹{(item.quantity * item.unitCost * 0.18).toLocaleString('en-IN', {minimumFractionDigits: 2})})
+                          </div>
+                       </div>
+                    </div>
                 ))}
              </div>
              

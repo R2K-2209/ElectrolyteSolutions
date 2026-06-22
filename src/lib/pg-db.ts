@@ -2088,6 +2088,42 @@ export interface StockReceiptInput {
   items: ReceiptItem[];
 }
 
+/**
+ * Check if a stock receipt with the given invoice number already exists.
+ * Returns the existing receipt details if found, or null if not.
+ */
+export async function checkDuplicateInvoice(invoiceNo: string): Promise<{
+  exists: boolean;
+  existingReceipt?: {
+    id: number;
+    vendor_name: string;
+    invoice_no: string;
+    received_date: string;
+    total_amount: number;
+    created_at: string;
+    items_count: number;
+  };
+}> {
+  try {
+    const result = await pool.query(`
+      SELECT sr.id, sr.vendor_name, sr.invoice_no, sr.received_date, sr.total_amount, sr.created_at,
+             (SELECT COUNT(*) FROM inventory_transactions it WHERE it.receipt_id = sr.id)::int as items_count
+      FROM stock_receipts sr
+      WHERE LOWER(TRIM(sr.invoice_no)) = LOWER(TRIM($1))
+      ORDER BY sr.created_at DESC
+      LIMIT 1
+    `, [invoiceNo.trim()]);
+
+    if (result.rows.length > 0) {
+      return { exists: true, existingReceipt: result.rows[0] };
+    }
+    return { exists: false };
+  } catch (error) {
+    console.error('Error checking duplicate invoice:', error);
+    return { exists: false };
+  }
+}
+
 export async function addStockReceipt(
   receipt: StockReceiptInput,
   addedBy?: string
