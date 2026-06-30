@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Package, Plus, Minus, BarChart3, TrendingDown, Boxes, ArrowLeft,
   Search, Check, Loader2, AlertTriangle, ArrowUpDown, Filter, X, 
-  Zap, Trash2, ShoppingCart, Upload, FileText, Receipt, Keyboard, Calculator, CheckCircle2, Lock, Unlock
+  Zap, Trash2, ShoppingCart, Upload, FileText, Receipt, Keyboard, Calculator, CheckCircle2, Lock, Unlock, Percent,
+  ChevronDown, ChevronRight, MapPin
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -251,6 +252,8 @@ interface CartItem {
   currentStock?: number;
   componentType?: string;
   isLocked?: boolean;
+  itemGst: number;       // GST % for this specific item (default from global)
+  gstIncluded: boolean;  // Whether unitCost already includes GST
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +324,10 @@ export function InventoryTab() {
   // AI Parsing State
   const [aiParsing, setAiParsing] = useState(false);
 
+  // GST Configuration
+  const [gstPercent, setGstPercent] = useState<number>(18);
+  const [pricesIncludeGst, setPricesIncludeGst] = useState(false);
+
   // Keyboard navigation refs
   const searchInputRef = useRef<HTMLInputElement>(null);
   const qtyRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -330,6 +337,8 @@ export function InventoryTab() {
   const [invSearch, setInvSearch] = useState('');
   const [showLowOnly, setShowLowOnly] = useState(false);
   const [invSort, setInvSort] = useState<'name' | 'stock' | 'threshold'>('name');
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
   // PO History State
   const [poHistory, setPoHistory] = useState<StockReceiptRow[]>([]);
@@ -439,6 +448,8 @@ export function InventoryTab() {
         reorderThreshold: 5,
         componentType: compType,
         isLocked: true,
+        itemGst: gstPercent,
+        gstIncluded: pricesIncludeGst,
       }]);
     } else {
       // Add existing part
@@ -452,6 +463,8 @@ export function InventoryTab() {
         reorderThreshold: part.reorder_threshold,
         currentStock: part.stock_quantity,
         isLocked: true,
+        itemGst: gstPercent,
+        gstIncluded: pricesIncludeGst,
       }]);
     }
     setCartSearch('');
@@ -486,9 +499,23 @@ export function InventoryTab() {
     }
   };
 
-  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + (item.quantity * item.unitCost), 0), [cart]);
-  const gstAmount = useMemo(() => subtotal * 0.18, [subtotal]);
-  const totalAmount = useMemo(() => subtotal * 1.18, [subtotal]);
+  // Per-item GST calculations
+  const getItemBase = (item: CartItem) => {
+    const raw = item.quantity * item.unitCost;
+    if (item.gstIncluded && item.itemGst > 0) return raw / (1 + item.itemGst / 100);
+    return raw;
+  };
+  const getItemGst = (item: CartItem) => getItemBase(item) * (item.itemGst / 100);
+  const getItemTotal = (item: CartItem) => getItemBase(item) + getItemGst(item);
+
+  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + getItemBase(item), 0), [cart]);
+  const gstAmount = useMemo(() => cart.reduce((sum, item) => sum + getItemGst(item), 0), [cart]);
+  const totalAmount = useMemo(() => Math.round(subtotal + gstAmount), [subtotal, gstAmount]);
+
+  // Apply global GST setting to all cart items
+  const applyGlobalGst = () => {
+    setCart(prev => prev.map(item => ({ ...item, itemGst: gstPercent, gstIncluded: pricesIncludeGst })));
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -527,6 +554,8 @@ export function InventoryTab() {
               reorderThreshold: 5, // default
               componentType: compType,
               isLocked: true,
+              itemGst: gstPercent,
+              gstIncluded: pricesIncludeGst,
             };
           });
           setCart(newCartItems);
@@ -676,6 +705,39 @@ export function InventoryTab() {
     }
     return sorted;
   }, [globalParts, showLowOnly, invSearch, invSort]);
+
+  // Category stats for the summary strip
+  const categoryStats = useMemo(() => {
+    return ALL_CATEGORIES.map(cat => {
+      const items = sortedInvParts.filter(p => getCategory(p.part_name, p.description, p.location_hint) === cat);
+      const critical = items.filter(p => p.stock_quantity === 0).length;
+      const warning = items.filter(p => p.stock_quantity > 0 && p.stock_quantity <= p.reorder_threshold).length;
+      return { category: cat, total: items.length, critical, warning, items };
+    }).filter(s => s.total > 0);
+  }, [sortedInvParts]);
+
+  // Auto-expand categories with critical stock on first load
+  useEffect(() => {
+    if (activeView === 'inventory' && expandedCategories.size === 0 && categoryStats.length > 0) {
+      const autoExpand = new Set<string>();
+      categoryStats.forEach(s => {
+        if (s.critical > 0 || s.warning > 0) autoExpand.add(s.category);
+      });
+      // If nothing critical, expand the first 3
+      if (autoExpand.size === 0) {
+        categoryStats.slice(0, 3).forEach(s => autoExpand.add(s.category));
+      }
+      setExpandedCategories(autoExpand);
+    }
+  }, [activeView, categoryStats]);
+
+  const toggleCategory = (cat: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat); else next.add(cat);
+      return next;
+    });
+  };
 
 
   // -------------------------------------------------------------------------
@@ -874,6 +936,54 @@ export function InventoryTab() {
              </div>
            </div>
 
+           {/* GST Configuration Bar */}
+           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 flex flex-col md:flex-row md:items-center gap-4">
+              <div className="flex items-center gap-2 shrink-0">
+                 <Percent className="h-5 w-5 text-indigo-500" />
+                 <span className="text-sm font-bold text-gray-700">GST</span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                 {[0, 5, 12, 18, 28].map(pct => (
+                    <button
+                       key={pct}
+                       onClick={() => setGstPercent(pct)}
+                       className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all ${gstPercent === pct ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    >
+                       {pct === 0 ? 'No GST' : `${pct}%`}
+                    </button>
+                 ))}
+                 <div className="flex items-center gap-1 ml-1">
+                    <input
+                       type="number"
+                       min="0"
+                       max="100"
+                       step="0.5"
+                       value={gstPercent}
+                       onChange={e => setGstPercent(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))}
+                       className="w-16 h-8 text-center text-xs font-bold border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <span className="text-xs text-gray-500 font-bold">%</span>
+                 </div>
+              </div>
+              <div className="h-6 w-px bg-gray-200 hidden md:block"></div>
+              <button
+                 onClick={() => setPricesIncludeGst(!pricesIncludeGst)}
+                 className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all border ${pricesIncludeGst ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'}`}
+              >
+                 <div className={`w-8 h-4 rounded-full transition-colors relative ${pricesIncludeGst ? 'bg-amber-500' : 'bg-gray-300'}`}>
+                    <div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-all shadow-sm ${pricesIncludeGst ? 'left-[18px]' : 'left-0.5'}`}></div>
+                 </div>
+                 Prices include GST
+              </button>
+              <div className="h-6 w-px bg-gray-200 hidden md:block"></div>
+              <button
+                 onClick={applyGlobalGst}
+                 className="px-4 py-1.5 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-all"
+              >
+                 Apply to All Items
+              </button>
+           </div>
+
            {/* BOTTOM PANE: Global Search & Intake Cart */}
            <div className="flex-1 bg-white rounded-3xl border border-gray-200 shadow-sm flex flex-col min-h-[400px] overflow-hidden">
               <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1028,6 +1138,32 @@ export function InventoryTab() {
                                    <Trash2 className="h-5 w-5" />
                                 </button>
                              </div>
+                             {/* Per-item GST control row - only when unlocked */}
+                             {!item.isLocked && (
+                                <div className="col-span-full flex items-center gap-2 pt-2 border-t border-gray-100 mt-2">
+                                    <Percent className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                                    <div className="flex items-center gap-1">
+                                       {[0, 5, 12, 18, 28].map(pct => (
+                                          <button
+                                             key={pct}
+                                             onClick={() => updateCartItem(item.tempId, 'itemGst', pct)}
+                                             className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${item.itemGst === pct ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                          >
+                                             {pct === 0 ? '0%' : `${pct}%`}
+                                          </button>
+                                       ))}
+                                    </div>
+                                    <button
+                                       onClick={() => updateCartItem(item.tempId, 'gstIncluded', !item.gstIncluded)}
+                                       className={`ml-auto flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${item.gstIncluded ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-gray-50 text-gray-400 border-gray-200'}`}
+                                    >
+                                       <div className={`w-6 h-3 rounded-full transition-colors relative ${item.gstIncluded ? 'bg-amber-500' : 'bg-gray-300'}`}>
+                                          <div className={`w-2 h-2 bg-white rounded-full absolute top-0.5 transition-all ${item.gstIncluded ? 'left-[14px]' : 'left-0.5'}`}></div>
+                                       </div>
+                                       Incl.
+                                    </button>
+                                 </div>
+                             )}
                           </div>
                        ))}
                     </div>
@@ -1047,7 +1183,7 @@ export function InventoryTab() {
                   </div>
                   <div>
                      <p className="text-sm font-bold tracking-wide">Ready for Review</p>
-                     <p className="text-xs text-emerald-400 font-bold">Total: ₹{totalAmount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</p>
+                     <p className="text-xs text-emerald-400 font-bold">Total: ₹{totalAmount.toLocaleString('en-IN')}{gstPercent > 0 ? ` (${pricesIncludeGst ? 'GST incl.' : `+${gstPercent}% GST`})` : ''}</p>
                   </div>
                </div>
                
@@ -1088,7 +1224,7 @@ export function InventoryTab() {
                 </div>
                 <div className="text-right">
                    <p className="text-sm font-bold text-gray-500 uppercase">Total Amount</p>
-                   <p className="text-3xl font-black text-emerald-600">₹{totalAmount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</p>
+                   <p className="text-3xl font-black text-emerald-600">₹{totalAmount.toLocaleString('en-IN')}</p>
                 </div>
              </div>
              
@@ -1120,11 +1256,14 @@ export function InventoryTab() {
                 <div>Description</div>
                 <div className="text-center">Qty</div>
                 <div className="text-right">Unit Price</div>
-                <div className="text-right">Amount (Incl. GST)</div>
+                <div className="text-right">Amount</div>
              </div>
              
              <div className="space-y-3">
-                {cart.map(item => (
+                {cart.map(item => {
+                   const itemTotal = getItemTotal(item);
+                   const itemGstAmt = getItemGst(item);
+                   return (
                    <div 
                       key={item.tempId} 
                       className={`grid grid-cols-[1fr_80px_100px_120px] gap-4 items-center p-3 -mx-3 rounded-xl border ${!item.sparePartId ? 'bg-red-50 border-red-200 shadow-sm' : 'border-transparent hover:bg-gray-50'}`}
@@ -1140,28 +1279,49 @@ export function InventoryTab() {
                        <div className="text-center font-black text-gray-700">{item.quantity}</div>
                        <div className="text-right font-medium text-gray-600">₹{item.unitCost.toFixed(2)}</div>
                        <div className="text-right">
-                          <div className={`font-black ${!item.sparePartId ? 'text-red-900' : 'text-gray-900'}`}>₹{(item.quantity * item.unitCost * 1.18).toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
+                          <div className={`font-black ${!item.sparePartId ? 'text-red-900' : 'text-gray-900'}`}>₹{itemTotal.toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
+                          {item.itemGst > 0 && (
                           <div className="text-[10px] text-gray-400 font-bold mt-0.5">
-                             (GST: ₹{(item.quantity * item.unitCost * 0.18).toLocaleString('en-IN', {minimumFractionDigits: 2})})
+                             ({item.itemGst}% GST{item.gstIncluded ? ' incl.' : ''}: ₹{itemGstAmt.toLocaleString('en-IN', {minimumFractionDigits: 2})})
                           </div>
+                          )}
+                          {item.itemGst === 0 && (
+                          <div className="text-[10px] text-gray-400 font-bold mt-0.5">No GST</div>
+                          )}
                        </div>
                     </div>
-                ))}
+                   );
+                })}
              </div>
              
-             {/* Financial breakdown including GST */}
+             {/* Financial breakdown */}
              <div className="mt-6 border-t-2 border-gray-200 pt-4 space-y-2">
                 <div className="flex justify-between text-sm text-gray-600 font-medium">
                    <span>Subtotal (Excl. GST)</span>
                    <span>₹{subtotal.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
                 </div>
+                {gstAmount > 0 && (
                 <div className="flex justify-between text-sm text-gray-600 font-medium">
-                   <span>GST (18%)</span>
+                   <span>Total GST (per-item rates)</span>
                    <span>₹{gstAmount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
                 </div>
+                )}
+                {(() => {
+                   const preRound = subtotal + gstAmount;
+                   const roundOff = totalAmount - preRound;
+                   if (Math.abs(roundOff) >= 0.01) {
+                     return (
+                       <div className="flex justify-between text-sm text-gray-500 font-medium">
+                          <span>Round Off</span>
+                          <span>{roundOff > 0 ? '+' : ''}₹{roundOff.toFixed(2)}</span>
+                       </div>
+                     );
+                   }
+                   return null;
+                })()}
                 <div className="flex justify-between text-base font-black text-gray-900 border-t border-gray-200 pt-2">
-                   <span>Grand Total (Incl. GST)</span>
-                   <span>₹{totalAmount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                   <span>Grand Total</span>
+                   <span>₹{totalAmount.toLocaleString('en-IN')}</span>
                 </div>
              </div>
           </div>
@@ -1185,69 +1345,156 @@ export function InventoryTab() {
       </Dialog>
 
       {/* ----------------------------------------------------------------- */}
-      {/* MASTER INVENTORY VIEW (Kept from previous) */}
+      {/* MASTER INVENTORY VIEW — Category Card Grid */}
       {/* ----------------------------------------------------------------- */}
       {activeView === 'inventory' && (
          <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-500">
+           {/* Top Bar: Search + Filters */}
            <div className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-gray-200 shadow-sm flex-wrap">
              <div className="flex-1 relative min-w-[200px]">
                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-               <Input value={invSearch} onChange={e => setInvSearch(e.target.value)} placeholder="Search global inventory..." className="pl-10 h-10 bg-gray-50 border-transparent focus:bg-white rounded-xl" />
+               <Input value={invSearch} onChange={e => setInvSearch(e.target.value)} placeholder="Search components or type a category (e.g. 'capacitor')..." className="pl-10 h-10 bg-gray-50 border-transparent focus:bg-white rounded-xl" />
              </div>
              <Button variant={showLowOnly ? 'default' : 'outline'} size="sm" onClick={() => setShowLowOnly(!showLowOnly)} className={`h-10 rounded-xl px-4 font-bold transition-all ${showLowOnly ? 'bg-amber-500 text-white border-transparent' : 'border-gray-200 text-gray-600'}`}>
                <Filter className="h-4 w-4 mr-2" /> Critical Stock
              </Button>
+             <select
+               value={invSort}
+               onChange={e => setInvSort(e.target.value as any)}
+               className="h-10 px-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+             >
+               <option value="name">Sort: Name</option>
+               <option value="stock">Sort: Stock (Low→High)</option>
+               <option value="threshold">Sort: Health</option>
+             </select>
            </div>
-           
-           <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm flex-1 flex flex-col">
-             <div className="grid grid-cols-[1fr_120px_120px_140px] gap-4 px-6 py-4 bg-gray-50/80 border-b border-gray-200 text-xs font-black text-gray-500 uppercase tracking-wider sticky top-0 z-10 backdrop-blur-sm">
-               <div>Component Details</div>
-               <div className="text-right">Current Stock</div>
-               <div className="text-right">Reorder At</div>
-               <div className="text-center">System Status</div>
-             </div>
-             <div className="overflow-y-auto flex-1">
-                {ALL_CATEGORIES.map(category => {
-                  const items = sortedInvParts.filter(
-                    p => getCategory(p.part_name, p.description, p.location_hint) === category
-                  );
-                  if (items.length === 0) return null;
-                  const s = CATEGORY_STYLES[category];
-                  
-                  return (
-                    <div key={category} className="flex flex-col">
-                      {/* Category Header */}
-                      <div className={`${s.bg} px-6 py-3.5 text-xs font-black ${s.text} uppercase tracking-wider sticky top-0 z-10 backdrop-blur-sm border-y ${s.border} flex items-center gap-2`}>
-                        <span className={`w-2.5 h-2.5 rounded-full ${s.dot} ${s.shadow}`}></span>
-                        {category}
-                        <span className={`text-[10px] ${s.badge} px-2.5 py-0.5 rounded-full font-black ml-1.5`}>{items.length}</span>
-                      </div>
-                      
-                      {/* Category Rows */}
-                      {items.map(sp => {
-                        const isLow = sp.stock_quantity > 0 && sp.stock_quantity <= sp.reorder_threshold;
-                        const isOut = sp.stock_quantity === 0;
-                        return (
-                          <div key={sp.id} className="grid grid-cols-[1fr_120px_120px_140px] gap-4 px-6 py-4 border-b border-gray-100 items-center group hover:bg-gray-50/50 transition-colors">
-                            <div className="min-w-0">
-                              <p className="text-base font-bold text-gray-900 truncate">{sp.part_name}</p>
-                              {sp.description && sp.description !== sp.part_name && <p className="text-xs font-medium text-gray-400 truncate mt-0.5">{sp.description}</p>}
-                            </div>
-                            <div className="text-right font-black text-lg">{sp.stock_quantity}</div>
-                            <div className="text-right font-bold text-gray-400">{sp.reorder_threshold}</div>
-                            <div className="flex justify-center">
-                              {isOut ? <span className="bg-red-50 text-red-700 px-3 py-1 rounded-lg font-bold text-xs border border-red-100">CRITICAL</span> : 
-                               isLow ? <span className="bg-amber-50 text-amber-700 px-3 py-1 rounded-lg font-bold text-xs border border-amber-100">WARNING</span> : 
-                               <span className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-lg font-bold text-xs border border-emerald-100">HEALTHY</span>}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-             </div>
+
+           {/* Category Summary Strip */}
+           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+             <button
+               onClick={() => { setActiveCategory(null); setExpandedCategories(new Set(categoryStats.map(s => s.category))); }}
+               className={`shrink-0 px-4 py-2 rounded-xl text-xs font-black transition-all border ${!activeCategory ? 'bg-gray-900 text-white border-gray-900 shadow-lg' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+             >
+               All ({sortedInvParts.length})
+             </button>
+             {categoryStats.map(stat => {
+               const s = CATEGORY_STYLES[stat.category as ComponentCategory];
+               const isActive = activeCategory === stat.category;
+               return (
+                 <button
+                   key={stat.category}
+                   onClick={() => {
+                     setActiveCategory(isActive ? null : stat.category);
+                     setExpandedCategories(prev => { const n = new Set(prev); n.add(stat.category); return n; });
+                   }}
+                   className={`shrink-0 px-4 py-2 rounded-xl text-xs font-black transition-all border flex items-center gap-2 ${isActive ? `${s.bg} ${s.text} ${s.border} ${s.shadow}` : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                 >
+                   <span className={`w-2 h-2 rounded-full ${s.dot}`}></span>
+                   {stat.category}
+                   <span className={`${isActive ? 'bg-white/40' : 'bg-gray-100'} px-1.5 py-0.5 rounded-md text-[10px]`}>{stat.total}</span>
+                   {stat.critical > 0 && <span className="bg-red-500 text-white px-1.5 py-0.5 rounded-md text-[10px]">{stat.critical}</span>}
+                   {stat.warning > 0 && <span className="bg-amber-500 text-white px-1.5 py-0.5 rounded-md text-[10px]">{stat.warning}</span>}
+                 </button>
+               );
+             })}
            </div>
+
+           {/* Loading State */}
+           {partsLoading && (
+             <div className="flex items-center justify-center h-40">
+               <Loader2 className="h-8 w-8 animate-spin text-gray-300" />
+             </div>
+           )}
+
+           {/* Empty State */}
+           {!partsLoading && sortedInvParts.length === 0 && (
+             <div className="flex flex-col items-center justify-center h-60 bg-white rounded-2xl border border-gray-200 shadow-sm">
+               <Package className="h-12 w-12 text-gray-300 mb-3" />
+               <p className="font-bold text-gray-400 text-lg">No components found</p>
+               <p className="text-sm text-gray-400 mt-1">Add stock through PO Intake to populate your inventory.</p>
+             </div>
+           )}
+
+           {/* Category Sections */}
+           {!partsLoading && categoryStats
+             .filter(stat => !activeCategory || stat.category === activeCategory)
+             .map(stat => {
+               const s = CATEGORY_STYLES[stat.category as ComponentCategory];
+               const isExpanded = expandedCategories.has(stat.category);
+               const healthyCount = stat.total - stat.critical - stat.warning;
+
+               return (
+                 <div key={stat.category} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden transition-all">
+                   {/* Category Header — Clickable to expand/collapse */}
+                   <button
+                     onClick={() => toggleCategory(stat.category)}
+                     className={`w-full flex items-center gap-3 px-5 py-4 ${s.bg} border-b ${s.border} transition-all hover:opacity-90`}
+                   >
+                     <span className={`w-3 h-3 rounded-full ${s.dot} ${s.shadow}`}></span>
+                     <span className={`text-sm font-black ${s.text} uppercase tracking-wider`}>{stat.category}</span>
+                     <span className={`text-[10px] ${s.badge} px-2.5 py-0.5 rounded-full font-black`}>{stat.total}</span>
+
+                     {/* Mini health summary */}
+                     <div className="flex items-center gap-1.5 ml-auto mr-3">
+                       {healthyCount > 0 && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">{healthyCount} OK</span>}
+                       {stat.warning > 0 && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">{stat.warning} Low</span>}
+                       {stat.critical > 0 && <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-full animate-pulse">{stat.critical} Out</span>}
+                     </div>
+
+                     {isExpanded ? <ChevronDown className={`h-5 w-5 ${s.text} transition-transform`} /> : <ChevronRight className={`h-5 w-5 ${s.text} transition-transform`} />}
+                   </button>
+
+                   {/* Expanded Card Grid */}
+                   {isExpanded && (
+                     <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                       {stat.items.map(sp => {
+                         const isLow = sp.stock_quantity > 0 && sp.stock_quantity <= sp.reorder_threshold;
+                         const isOut = sp.stock_quantity === 0;
+                         const ratio = sp.reorder_threshold > 0 ? Math.min(sp.stock_quantity / (sp.reorder_threshold * 3), 1) : 1;
+                         const barColor = isOut ? 'bg-red-500' : isLow ? 'bg-amber-500' : 'bg-emerald-500';
+                         const bgColor = isOut ? 'bg-red-50 border-red-200' : isLow ? 'bg-amber-50 border-amber-200' : 'border-gray-200 hover:border-gray-300';
+
+                         return (
+                           <div key={sp.id} className={`rounded-xl border p-4 transition-all hover:shadow-md ${bgColor} group`}>
+                             {/* Top row: Name + Status badge */}
+                             <div className="flex items-start justify-between gap-2 mb-2">
+                               <div className="min-w-0 flex-1">
+                                 <p className="font-bold text-gray-900 text-sm truncate leading-tight">{sp.part_name}</p>
+                                 {sp.description && sp.description !== sp.part_name && (
+                                   <p className="text-[11px] text-gray-400 truncate mt-0.5">{sp.description}</p>
+                                 )}
+                               </div>
+                               {isOut ? <span className="shrink-0 text-[10px] bg-red-500 text-white px-2 py-0.5 rounded-full font-black animate-pulse">OUT</span> :
+                                isLow ? <span className="shrink-0 text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-black">LOW</span> :
+                                <span className="shrink-0 text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold">OK</span>}
+                             </div>
+
+                             {/* Stock bar */}
+                             <div className="mb-3">
+                               <div className="flex items-baseline justify-between mb-1">
+                                 <span className={`text-2xl font-black ${isOut ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-gray-900'}`}>{sp.stock_quantity}</span>
+                                 <span className="text-[10px] font-bold text-gray-400">Reorder at {sp.reorder_threshold}</span>
+                               </div>
+                               <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                 <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${Math.max(ratio * 100, isOut ? 0 : 5)}%` }}></div>
+                               </div>
+                             </div>
+
+                             {/* Bottom: Location badge */}
+                             {sp.location_hint && (
+                               <div className="flex items-center gap-1 text-[10px] font-bold text-gray-400">
+                                 <MapPin className="h-3 w-3" />
+                                 <span>{sp.location_hint}</span>
+                               </div>
+                             )}
+                           </div>
+                         );
+                       })}
+                     </div>
+                   )}
+                 </div>
+               );
+           })}
          </div>
       )}
 
